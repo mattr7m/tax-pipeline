@@ -1,0 +1,87 @@
+# Tax Processor Configuration
+
+# Paths (relative to project root)
+paths:
+  raw_documents: "data/raw"
+  extracted_data: "data/extracted"
+  sanitized_data: "data/sanitized"
+  vault: "data/vault"
+  instructions: "data/instructions"
+  output: "data/output"
+  blank_forms: "templates/blank-forms"
+  tax_knowledge: "tax-knowledge"
+
+# Ollama settings (for extraction when --extraction-backend ollama)
+ollama:
+  model: "llama3.2"  # or "mistral", "llama3.2:70b" for better results
+  base_url: "http://localhost:11434"
+  temperature: 0.1  # Low for consistent extraction
+  timeout: 120  # seconds
+
+# Claude API settings (for processing step)
+claude_api:
+  model: "claude-sonnet-4-20250514"
+  max_tokens: 8192
+  temperature: 0.2
+
+# Local LLM server settings (llama.cpp with OpenAI-compatible API)
+# Used for:
+#   - Processing step when --backend local
+#   - Extraction step when --extraction-backend local
+local_llm_server:
+  base_url: "http://localhost:8080/v1"
+  model: "qwen3-235b"  # Model name (for logging, actual model loaded by server)
+  max_tokens: 8192
+  temperature: 0.2
+  timeout: 300  # Longer timeout for large local models
+
+# Extraction-specific overrides when using local_llm_server
+extraction:
+  temperature: 0.1  # Lower for consistent structured output
+  max_tokens: 4096
+  timeout: 180
+
+# Recommended models for Ryzen AI MAX+ 395 (128GB):
+# - Qwen3-235B-A22B-Instruct-2507 (Q2_K_XL, ~90GB) - Best quality
+# - Qwen2.5-72B-Instruct (Q4_K_M, ~45GB) - Best speed/quality balance
+# - Llama-4-Scout-109B (Q4_K_XL, ~58GB) - Good with vision
+# - DeepSeek-R1-70B (Q4_K_M, ~42GB) - Strong reasoning
+
+# OCR settings
+ocr:
+  engine: "tesseract"
+  language: "eng"
+  dpi: 300
+
+# Sensitive data patterns to sanitize
+sensitive_patterns:
+  ssn:
+    pattern: '\b\d{3}-\d{2}-\d{4}\b'
+    replacement: "[SSN_REDACTED_{id}]"
+  ein:
+    pattern: '\b\d{2}-\d{7}\b'
+    replacement: "[EIN_REDACTED_{id}]"
+  account_number:
+    pattern: '\b\d{8,17}\b'
+    replacement: "[ACCT_REDACTED_{id}]"
+  routing_number:
+    pattern: '\b\d{9}\b'
+    replacement: "[ROUTING_REDACTED_{id}]"
+
+# Document type detection keywords
+document_types:
+  w2:
+    keywords: ["Wage and Tax Statement", "W-2", "Form W-2"]
+    fields: ["wages", "federal_withheld", "social_security_wages", "medicare_wages"]
+  1099_int:
+    keywords: ["1099-INT", "Interest Income"]
+    fields: ["interest_income", "early_withdrawal_penalty", "federal_withheld"]
+  1099_div:
+    keywords: ["1099-DIV", "Dividends and Distributions"]
+    fields: ["ordinary_dividends", "qualified_dividends", "capital_gain_distributions"]
+  1098:
+    keywords: ["1098", "Mortgage Interest Statement"]
+    fields: ["mortgage_interest", "points_paid", "property_taxes"]
+  1040:
+    keywords: ["Form 1040", "U.S. Individual Income Tax Return"]
+    fields: ["filing_status", "dependents", "total_income", "agi", "taxable_income"]

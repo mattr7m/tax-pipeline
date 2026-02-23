@@ -1,0 +1,23 @@
+# PDF Processing
+pymupdf>=1.24.0
+pypdf>=4.0.0
+pytesseract>=0.3.10
+pdf2image>=1.17.0
+Pillow>=10.0.0
+
+# Local LLM
+ollama>=0.3.0
+
+# Claude API
+anthropic>=0.39.0
+
+# Data handling
+pyyaml>=6.0
+pydantic>=2.0.0
+
+# Encryption
+pyage>=1.0.0
+
+# CLI
+click>=8.1.0
+rich>=13.0.0

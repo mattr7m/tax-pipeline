@@ -1,0 +1,113 @@
+{
+  "form_id": "schedule_a",
+  "form_name": "Itemized Deductions",
+  "tax_year": 2025,
+  "revision_date": "2025-01",
+  "parent_form": "1040",
+  "source": "IRS Schedule A (Form 1040) 2025",
+  
+  "when_to_use": {
+    "description": "Use Schedule A if itemized deductions exceed the standard deduction",
+    "standard_deduction_single": 15000,
+    "standard_deduction_married_jointly": 30000,
+    "standard_deduction_head_of_household": 22500,
+    "common_reasons_to_itemize": [
+      "Large mortgage interest payments",
+      "Significant state and local taxes (up to $10,000 cap)",
+      "Large charitable contributions",
+      "Major medical expenses exceeding 7.5% of AGI"
+    ]
+  },
+  
+  "field_mappings": {
+    "medical_dental": {
+      "f1_01": { "line": "1", "type": "currency", "description": "Medical and dental expenses (see instructions)" },
+      "f1_02": { "line": "2", "type": "currency", "description": "Enter amount from Form 1040, line 11 (AGI)" },
+      "f1_03": { "line": "3", "type": "currency", "description": "Multiply line 2 by 7.5% (0.075)" },
+      "f1_04": { "line": "4", "type": "currency", "description": "Subtract line 3 from line 1. If zero or less, enter 0" }
+    },
+    
+    "taxes_paid": {
+      "f1_05": { "line": "5a", "type": "currency", "description": "State and local income taxes OR general sales taxes" },
+      "c1_01": { "line": "5a checkbox", "type": "checkbox", "description": "Check if using sales tax instead of income tax" },
+      "f1_06": { "line": "5b", "type": "currency", "description": "State and local real estate taxes" },
+      "f1_07": { "line": "5c", "type": "currency", "description": "State and local personal property taxes" },
+      "f1_08": { "line": "5d", "type": "currency", "description": "Add lines 5a through 5c" },
+      "f1_09": { "line": "5e", "type": "currency", "description": "Enter the smaller of line 5d or $10,000 ($5,000 if MFS)" },
+      "f1_10": { "line": "6", "type": "currency", "description": "Other taxes (list type and amount)" },
+      "f1_11": { "line": "7", "type": "currency", "description": "Add lines 5e and 6 (total taxes paid)" }
+    },
+    
+    "interest_paid": {
+      "f1_12": { "line": "8a", "type": "currency", "description": "Home mortgage interest and points from Form 1098" },
+      "f1_13": { "line": "8b", "type": "currency", "description": "Home mortgage interest not reported on Form 1098" },
+      "f1_14": { "line": "8c", "type": "currency", "description": "Points not reported on Form 1098" },
+      "f1_15": { "line": "8d", "type": "currency", "description": "Mortgage insurance premiums (see instructions)" },
+      "f1_16": { "line": "8e", "type": "currency", "description": "Add lines 8a through 8d" },
+      "f1_17": { "line": "9", "type": "currency", "description": "Investment interest (attach Form 4952 if required)" },
+      "f1_18": { "line": "10", "type": "currency", "description": "Add lines 8e and 9 (total interest paid)" }
+    },
+    
+    "charitable_contributions": {
+      "f1_19": { "line": "11", "type": "currency", "description": "Gifts by cash or check" },
+      "f1_20": { "line": "12", "type": "currency", "description": "Other than by cash or check (attach Form 8283 if over $500)" },
+      "f1_21": { "line": "13", "type": "currency", "description": "Carryover from prior year" },
+      "f1_22": { "line": "14", "type": "currency", "description": "Add lines 11 through 13 (total charitable contributions)" }
+    },
+    
+    "casualty_losses": {
+      "f1_23": { "line": "15", "type": "currency", "description": "Casualty and theft loss(es) from federally declared disaster (attach Form 4684)" }
+    },
+    
+    "other_deductions": {
+      "f1_24": { "line": "16", "type": "currency", "description": "Other itemized deductions (list type and amount)" }
+    },
+    
+    "totals": {
+      "f1_25": { "line": "17", "type": "currency", "description": "Add lines 4, 7, 10, 14, 15, and 16 (total itemized deductions)" },
+      "f1_26": { "line": "18", "type": "currency", "description": "If you elect to itemize, enter amount from line 17 here and on Form 1040, line 12" }
+    }
+  },
+  
+  "calculation_rules": {
+    "line_3": "Line 2 × 0.075",
+    "line_4": "Max(0, Line 1 - Line 3)",
+    "line_5d": "Line 5a + Line 5b + Line 5c",
+    "line_5e": "Min(Line 5d, 10000) or Min(Line 5d, 5000) if MFS",
+    "line_7": "Line 5e + Line 6",
+    "line_8e": "Line 8a + Line 8b + Line 8c + Line 8d",
+    "line_10": "Line 8e + Line 9",
+    "line_14": "Line 11 + Line 12 + Line 13",
+    "line_17": "Line 4 + Line 7 + Line 10 + Line 14 + Line 15 + Line 16"
+  },
+  
+  "limitations": {
+    "salt_cap": {
+      "amount": 10000,
+      "married_filing_separately": 5000,
+      "description": "State and local tax (SALT) deduction is capped at $10,000 ($5,000 if MFS)"
+    },
+    "mortgage_interest": {
+      "debt_limit": 750000,
+      "debt_limit_pre_dec_2017": 1000000,
+      "description": "Interest on mortgage debt up to $750,000 ($1M for pre-Dec 2017 debt)"
+    },
+    "charitable": {
+      "cash_agi_limit": 0.60,
+      "appreciated_property_limit": 0.30,
+      "description": "Cash contributions limited to 60% of AGI; appreciated property to 30%"
+    },
+    "medical": {
+      "agi_threshold": 0.075,
+      "description": "Only medical expenses exceeding 7.5% of AGI are deductible"
+    }
+  },
+  
+  "common_mistakes": [
+    "Forgetting the $10,000 SALT cap",
+    "Including taxes paid for prior years without adjustment",
+    "Not having documentation for charitable contributions over $250",
+    "Deducting medical expenses paid with HSA/FSA funds",
+    "Including mortgage interest on debt exceeding the limit"
+  ]
+}

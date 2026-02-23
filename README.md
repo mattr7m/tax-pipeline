@@ -1,0 +1,217 @@
+# Secure Tax Form Processor
+
+A hybrid local/cloud workflow for processing tax forms with maximum privacy.
+
+## Architecture
+
+```
+Raw PDFs → Local LLM (extraction) → Sanitizer → LLM Processing → Local Assembly → Filled PDFs
+```
+
+**Sensitive data (SSNs, account numbers) never leaves your machine.**
+
+Supports two LLM backends for the processing step:
+- **Claude API** (`--backend claude`): Fast, high quality, requires API key
+- **Local LLM** (`--backend local`): 100% offline, uses llama.cpp server
+
+## Prerequisites
+
+### Local Tools
+```bash
+# macOS
+brew install ollama tesseract poppler age
+
+# Linux
+sudo apt-get install tesseract-ocr poppler-utils
+# Install ollama from https://ollama.ai
+# Install age from https://github.com/FiloSottile/age
+```
+
+### Python Environment
+```bash
+cd tax-processor
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Pull Local LLM for Extraction
+```bash
+ollama pull llama3.2
+# Or for better performance with more RAM:
+ollama pull llama3.2:70b
+```
+
+### Backend Setup
+
+#### Option A: Claude API (--backend claude)
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+#### Option B: Local LLM (--backend local)
+
+For AMD Ryzen AI MAX+ 395 with 128GB unified memory, we recommend:
+
+```bash
+# Install llama.cpp with ROCm support
+git clone https://github.com/ggml-org/llama.cpp
+cd llama.cpp
+cmake -B build -DGGML_HIP=ON -DAMDGPU_TARGETS="gfx1151"
+cmake --build build --config Release -j16
+
+# Download Qwen3-235B-A22B (best quality for your hardware)
+pip install huggingface_hub hf_transfer
+huggingface-cli download unsloth/Qwen3-235B-A22B-Instruct-2507-GGUF \
+  --include "UD-Q2_K_XL/*" --local-dir ./models
+
+# Start the server
+./build/bin/llama-server \
+  --model ./models/UD-Q2_K_XL/*.gguf \
+  --n-gpu-layers 99 --flash-attn \
+  --ctx-size 32768 --threads 16 \
+  --host 0.0.0.0 --port 8080
+```
+
+Alternative models for different hardware:
+- **Qwen2.5-72B-Instruct** (Q4_K_M, ~45GB) - Best speed/quality balance
+- **Llama-4-Scout-109B** (Q4_K_XL, ~58GB) - Good with vision
+- **DeepSeek-R1-70B** (Q4_K_M, ~42GB) - Strong reasoning
+
+## Directory Structure
+
+```
+tax-processor/
+├── config.yaml              # Configuration
+├── requirements.txt         # Python dependencies
+├── scripts/
+│   ├── extract.py          # PDF → structured data (local)
+│   ├── sanitize.py         # Remove sensitive data
+│   ├── process.py          # LLM tax logic (Claude or local)
+│   ├── assemble.py         # Re-inject data & fill forms
+│   └── orchestrate.py      # Run full pipeline
+├── data/
+│   ├── raw/                # Your original PDFs (gitignored)
+│   │   ├── 2024/          # Prior year filled forms
+│   │   └── 2025/          # Current year inputs
+│   ├── extracted/          # Structured JSON from extraction
+│   ├── sanitized/          # Cleaned data for LLM
+│   ├── vault/              # Encrypted sensitive data
+│   └── output/             # Final filled forms
+└── templates/
+    └── blank-forms/        # Blank IRS forms for current year
+```
+
+## Usage
+
+### Full Pipeline (Claude API + Ollama extraction - default)
+```bash
+python scripts/orchestrate.py --year 2025
+```
+
+### Full Pipeline (100% Local - both extraction and processing)
+```bash
+python scripts/orchestrate.py --year 2025 --backend local --extraction-backend local
+```
+
+### Mixed Mode (Local extraction, Claude processing)
+```bash
+python scripts/orchestrate.py --year 2025 --backend claude --extraction-backend local
+```
+
+### Step by Step
+```bash
+# 1. Extract data from PDFs (choose backend)
+python scripts/extract.py --input data/raw/2025 --output data/extracted/2025.json \
+    --extraction-backend ollama  # or --extraction-backend local
+
+# 2. Sanitize sensitive data
+python scripts/sanitize.py --input data/extracted/2025.json \
+    --output data/sanitized/2025.json \
+    --vault data/vault/2025.age
+
+# 3. Process with LLM (choose backend)
+python scripts/process.py --input data/sanitized/2025.json \
+    --output data/instructions/2025.json \
+    --backend local  # or --backend claude
+
+# 4. Assemble final forms
+python scripts/assemble.py --instructions data/instructions/2025.json \
+    --vault data/vault/2025.age \
+    --templates templates/blank-forms \
+    --output data/output/2025
+```
+
+## Backend Options
+
+### Extraction Backends (--extraction-backend)
+
+| Backend | Model | Speed | Use Case |
+|---------|-------|-------|----------|
+| `ollama` | Llama 3.2 (8B) | ~50 tok/s | Default, fast for simple docs |
+| `local` | Qwen3-235B | ~10 tok/s | Complex/ambiguous documents |
+
+### Processing Backends (--backend)
+
+| Backend | Model | Speed | Use Case |
+|---------|-------|-------|----------|
+| `claude` | Claude Sonnet | ~80 tok/s | Best quality, requires API key |
+| `local` | Qwen3-235B | ~10 tok/s | 100% offline, no API needed |
+
+### Recommended Configurations
+
+```bash
+# Fast + High Quality (requires API key)
+--extraction-backend ollama --backend claude
+
+# 100% Offline (no external services)
+--extraction-backend local --backend local
+
+# Balanced (fast extraction, quality processing)
+--extraction-backend ollama --backend local
+```
+
+## Security Notes
+
+- Raw PDFs and vault files are gitignored
+- Vault is encrypted with `age` (modern GPG alternative)
+- Only sanitized data (no SSNs, account numbers) goes to any LLM
+- All sensitive processing happens locally
+
+## Tax Knowledge Base
+
+When using `--backend local`, the system automatically loads current-year
+tax knowledge to provide accurate information to the LLM:
+
+```
+tax-knowledge/
+└── 2025/
+    ├── tax-tables.json         # Brackets, deductions, limits
+    ├── form-1040-fields.json   # PDF field → line mappings
+    ├── schedule-a-fields.json  # Schedule A mappings
+    └── tax-rules-summary.md    # Key rules reference
+```
+
+This is **critical** for local LLMs since they may not have current tax
+information in their training data. The knowledge base includes:
+
+- Tax brackets and rates
+- Standard deduction amounts
+- Contribution limits (401k, IRA, HSA)
+- SALT cap and other deduction limits
+- PDF field ID to IRS line mappings
+- Calculation rules
+
+### Adding a New Tax Year
+
+```bash
+# Copy previous year as starting point
+cp -r tax-knowledge/2025 tax-knowledge/2026
+
+# Update values based on IRS announcements
+# (Revenue Procedure published in Oct/Nov each year)
+```
+
+## License
+
+MIT - Use at your own risk. Not tax advice.
