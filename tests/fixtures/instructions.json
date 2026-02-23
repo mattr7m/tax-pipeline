@@ -1,0 +1,47 @@
+{
+  "tax_year": 2025,
+  "filing_status": "single",
+  "forms_needed": ["1040"],
+  "form_instructions": {
+    "1040": {
+      "fields": {
+        "f1_01": {"value": "Jane", "source": "W-2", "line": "First name"},
+        "f1_02": {"value": "Doe", "source": "W-2", "line": "Last name"},
+        "f1_03": {"value": "[SSN_REDACTED_1]", "source": "W-2", "line": "SSN"},
+        "f1_25": {"value": 75000, "source": "W-2 Box 1", "line": "1a"},
+        "f1_36": {"value": 850, "source": "1099-INT Box 1", "line": "2b"},
+        "f1_47": {"value": 75850, "source": "Calculated", "line": "9"},
+        "f1_49": {"value": 75850, "source": "No adjustments", "line": "11"},
+        "f1_50": {"value": 15000, "source": "Standard deduction (Single)", "line": "12"},
+        "f1_53": {"value": 60850, "source": "Calculated", "line": "15"},
+        "f1_54": {"value": 8490, "source": "Tax Table", "line": "16"},
+        "f1_62": {"value": 8490, "source": "No additional taxes", "line": "24"},
+        "f1_63": {"value": 11250, "source": "W-2 Box 2", "line": "25a"},
+        "f1_66": {"value": 11250, "source": "Total withheld", "line": "25d"},
+        "f1_74": {"value": 11250, "source": "Total payments", "line": "33"},
+        "f1_75": {"value": 2760, "source": "Overpayment", "line": "34"},
+        "f1_76": {"value": 2760, "source": "Refund", "line": "35a"}
+      },
+      "calculations": [
+        {"description": "Total income", "formula": "75000 + 850", "result": 75850},
+        {"description": "Taxable income", "formula": "75850 - 15000", "result": 60850},
+        {"description": "Tax", "formula": "5578.50 + 0.22 * (60850 - 48475)", "result": 8490},
+        {"description": "Refund", "formula": "11250 - 8490", "result": 2760}
+      ]
+    }
+  },
+  "warnings": [
+    "Verify standard deduction vs itemized deductions"
+  ],
+  "missing_info": [
+    "State tax return not prepared"
+  ],
+  "summary": {
+    "total_income": 75850,
+    "total_deductions": 15000,
+    "taxable_income": 60850,
+    "total_tax": 8490,
+    "total_withheld": 11250,
+    "refund_or_owed": 2760
+  }
+}

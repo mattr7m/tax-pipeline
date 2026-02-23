@@ -1,0 +1,4 @@
+I found the following data in the document:
+- Employer: Acme Corp
+- Wages: $75,000
+Unfortunately I cannot format this as valid JSON because the document is unclear.

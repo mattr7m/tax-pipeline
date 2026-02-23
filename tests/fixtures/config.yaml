@@ -1,0 +1,69 @@
+# Minimal test configuration
+paths:
+  raw_documents: "data/raw"
+  extracted_data: "data/extracted"
+  sanitized_data: "data/sanitized"
+  vault: "data/vault"
+  instructions: "data/instructions"
+  output: "data/output"
+  blank_forms: "templates/blank-forms"
+  tax_knowledge: "tax-knowledge"
+
+ollama:
+  model: "test-model"
+  base_url: "http://localhost:11434"
+  temperature: 0.1
+  timeout: 30
+
+claude_api:
+  model: "claude-test"
+  max_tokens: 4096
+  temperature: 0.2
+
+local_llm_server:
+  base_url: "http://localhost:8080/v1"
+  model: "test-model"
+  max_tokens: 4096
+  temperature: 0.2
+  timeout: 60
+
+extraction:
+  temperature: 0.1
+  max_tokens: 2048
+  timeout: 30
+
+ocr:
+  engine: "tesseract"
+  language: "eng"
+  dpi: 300
+
+sensitive_patterns:
+  ssn:
+    pattern: '\b\d{3}-\d{2}-\d{4}\b'
+    replacement: "[SSN_REDACTED_{id}]"
+  ein:
+    pattern: '\b\d{2}-\d{7}\b'
+    replacement: "[EIN_REDACTED_{id}]"
+  account_number:
+    pattern: '\b\d{8,17}\b'
+    replacement: "[ACCT_REDACTED_{id}]"
+  routing_number:
+    pattern: '\b\d{9}\b'
+    replacement: "[ROUTING_REDACTED_{id}]"
+
+document_types:
+  w2:
+    keywords: ["Wage and Tax Statement", "W-2", "Form W-2"]
+    fields: ["wages", "federal_withheld", "social_security_wages", "medicare_wages"]
+  1099_int:
+    keywords: ["1099-INT", "Interest Income"]
+    fields: ["interest_income", "early_withdrawal_penalty", "federal_withheld"]
+  1099_div:
+    keywords: ["1099-DIV", "Dividends and Distributions"]
+    fields: ["ordinary_dividends", "qualified_dividends", "capital_gain_distributions"]
+  "1098":
+    keywords: ["1098", "Mortgage Interest Statement"]
+    fields: ["mortgage_interest", "points_paid", "property_taxes"]
+  "1040":
+    keywords: ["Form 1040", "U.S. Individual Income Tax Return"]
+    fields: ["filing_status", "dependents", "total_income", "agi", "taxable_income"]

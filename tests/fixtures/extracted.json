@@ -1,0 +1,71 @@
+{
+  "tax_year": 2025,
+  "documents": [
+    {
+      "document_type": "w2",
+      "source_file": "test_w2.pdf",
+      "employer": {
+        "name": "Acme Corp",
+        "ein": "99-8765432",
+        "address": "123 Main St, Springfield, IL 62701"
+      },
+      "employee": {
+        "name": "Jane Doe",
+        "ssn": "000-00-1234",
+        "address": "456 Oak Ave, Springfield, IL 62702"
+      },
+      "wages": 75000.00,
+      "federal_withheld": 11250.00,
+      "social_security_wages": 75000.00,
+      "social_security_withheld": 4650.00,
+      "medicare_wages": 75000.00,
+      "medicare_withheld": 1087.50,
+      "state": "IL",
+      "state_wages": 75000.00,
+      "state_withheld": 3712.50
+    },
+    {
+      "document_type": "1099_int",
+      "source_file": "test_1099int.pdf",
+      "payer": {
+        "name": "First National Bank",
+        "ein": "99-1111111"
+      },
+      "recipient": {
+        "name": "Jane Doe",
+        "ssn": "000-00-1234"
+      },
+      "interest_income": 850.00,
+      "federal_withheld": 0
+    },
+    {
+      "document_type": "1098",
+      "source_file": "test_1098.pdf",
+      "lender": {
+        "name": "Hometown Mortgage Co",
+        "ein": "99-2222222"
+      },
+      "borrower": {
+        "name": "Jane Doe",
+        "ssn": "000-00-1234",
+        "account_number": "98765432101234"
+      },
+      "mortgage_interest": 12500.00,
+      "property_taxes": 4200.00,
+      "outstanding_principal": 285000.00
+    }
+  ],
+  "summary": {
+    "income": {
+      "wages": 75000.00,
+      "interest": 850.00
+    },
+    "deductions": {
+      "mortgage_interest": 12500.00,
+      "property_taxes": 4200.00
+    },
+    "withholding": {
+      "federal": 11250.00
+    }
+  }
+}

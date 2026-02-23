@@ -1,0 +1,1 @@
+{"document_type": "w2", "tax_year": 2025, "employer": {"name": "Acme Corp"}, "wages": 75000}
