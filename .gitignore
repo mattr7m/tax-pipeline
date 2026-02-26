@@ -1,99 +1,69 @@
 # =============================================================================
-
 # TAX PROCESSOR - GITIGNORE
-
 # =============================================================================
-
 # This file prevents sensitive tax data from being committed to version control.
-
 # The data/ directory contains personal financial information and must NEVER
-
 # be committed to any repository.
-
 # =============================================================================
 
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # SENSITIVE DATA - NEVER COMMIT THESE
-
-# —————————————————————————–
+# -----------------------------------------------------------------------------
 
 # Raw tax documents (PDFs with SSNs, W-2s, 1099s, etc.)
-
 data/raw/
 
 # Extracted JSON (contains SSNs, account numbers before sanitization)
-
 data/extracted/
 
 # Sanitized JSON (safe, but still contains personal info)
-
 data/sanitized/
 
 # Encrypted vault (contains SSN/EIN mapping - extremely sensitive)
-
 data/vault/
 
 # LLM processing output (contains personal tax details)
-
 data/instructions/
 
 # Final filled forms (contains all personal data)
-
 data/output/
 
 # Temporary processing files
-
 data/temp/
 data/tmp/
 
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # PRESERVE DIRECTORY STRUCTURE
-
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # These rules allow empty .gitkeep files to maintain folder structure
 
 !data/.gitkeep
 !data/*/.gitkeep
 !data/**/.gitkeep
 
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # TEMPLATES - SAFE TO COMMIT
-
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # Blank IRS forms (no personal data)
-
 !templates/
 !templates/**
 
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # TAX KNOWLEDGE BASE - SAFE TO COMMIT
-
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # Tax tables, field mappings, instructions (no personal data)
-
 !tax-knowledge/
 !tax-knowledge/**
 
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # PYTHON
-
-# —————————————————————————–
-
-**pycache**/
+# -----------------------------------------------------------------------------
+__pycache__/
 *.py[cod]
 *$py.class
 *.so
 
 # Virtual environments
-
 .venv/
 venv/
 ENV/
@@ -101,7 +71,6 @@ env/
 .env
 
 # Distribution / packaging
-
 build/
 dist/
 *.egg-info/
@@ -109,12 +78,10 @@ dist/
 .eggs/
 
 # Installer logs
-
 pip-log.txt
 pip-delete-this-directory.txt
 
 # Unit test / coverage
-
 htmlcov/
 .tox/
 .nox/
@@ -129,25 +96,19 @@ coverage.xml
 .pytest_cache/
 
 # Jupyter Notebook
-
 .ipynb_checkpoints
 
 # pyenv
-
 .python-version
 
 # mypy
-
 .mypy_cache/
 .dmypy.json
 dmypy.json
 
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # IDE / EDITORS
-
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 .idea/
 .vscode/
 *.swp
@@ -158,12 +119,9 @@ dmypy.json
 .spyderproject
 .spyproject
 
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # OPERATING SYSTEM
-
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 .DS_Store
 .DS_Store?
 ._*
@@ -173,26 +131,19 @@ ehthumbs.db
 Thumbs.db
 desktop.ini
 
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # LOGS AND TEMPORARY FILES
-
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 *.log
 *.tmp
 *.temp
 *.bak
 *.backup
 
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # CREDENTIALS AND SECRETS
-
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # API keys, passwords, etc.
-
 .env
 .env.local
 .env.*.local
@@ -203,31 +154,24 @@ secrets.json
 credentials.json
 
 # Age encryption keys (if stored locally)
-
 *.age.key
 age-key.txt
 
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # LOCAL DEVELOPMENT
-
-# —————————————————————————–
-
+# -----------------------------------------------------------------------------
 # Local config overrides
-
 config.local.yaml
 config.dev.yaml
 
 # Test outputs
-
 test_output/
 test_data/
 
 # Downloaded IRS PDFs (large files)
-
 downloads/
 *.pdf
 
 # Exception: Keep sample/template PDFs if explicitly named
-
 !templates/blank-forms/*.pdf
+

@@ -259,10 +259,19 @@ def process_directory(
     output_file: Path,
     config: dict,
     extraction_backend: str,
+    document_role: str = "source_document",
     prior_year_data: Optional[dict] = None
 ) -> dict:
     """
     Process all PDFs in a directory.
+    
+    Args:
+        input_dir: Directory containing PDFs
+        output_file: Output JSON file
+        config: Configuration dict
+        extraction_backend: "ollama" or "local"
+        document_role: "source_document" or "filed_return"
+        prior_year_data: Optional prior year data for context
     """
     pdf_files = list(input_dir.rglob("*.pdf"))
     
@@ -274,6 +283,7 @@ def process_directory(
     
     extracted_data = {
         "tax_year": None,
+        "document_role": document_role,  # Track the role of these documents
         "documents": [],
         "summary": {
             "income": {},
@@ -309,6 +319,7 @@ def process_directory(
             )
             doc_data["source_file"] = pdf_path.name
             doc_data["detection_confidence"] = confidence
+            doc_data["document_role"] = document_role  # Track role per document
             
             extracted_data["documents"].append(doc_data)
             
@@ -418,7 +429,11 @@ def check_backend_available(backend: str, config: dict) -> bool:
               type=click.Choice(['ollama', 'local'], case_sensitive=False),
               default='ollama',
               help='LLM backend for extraction: "ollama" (fast, small model) or "local" (llama.cpp server)')
-def main(input_path: str, output_path: str, prior_year_path: Optional[str], extraction_backend: str):
+@click.option('--document-role', '-r', 'document_role',
+              type=click.Choice(['source_document', 'filed_return'], case_sensitive=False),
+              default='source_document',
+              help='Role of documents: "source_document" (W-2s, 1099s) or "filed_return" (completed tax returns)')
+def main(input_path: str, output_path: str, prior_year_path: Optional[str], extraction_backend: str, document_role: str):
     """
     Extract structured data from tax PDFs using LLM.
     
@@ -428,11 +443,19 @@ def main(input_path: str, output_path: str, prior_year_path: Optional[str], extr
     --extraction-backend ollama : Use Ollama with small model (default, fast)
     --extraction-backend local  : Use llama.cpp server (same model as processing)
     
+    Document roles:
+    
+    \b
+    --document-role source_document : W-2s, 1099s, 1098s (input documents)
+    --document-role filed_return    : Previously filed tax returns (for reference)
+    
     All processing happens locally - no data leaves your machine.
     """
     backend_display = "Ollama" if extraction_backend == "ollama" else "Local LLM (llama.cpp)"
+    role_display = "Source Documents" if document_role == "source_document" else "Filed Returns"
     
     console.print(f"[bold blue]Tax Document Extractor ({backend_display})[/bold blue]")
+    console.print(f"Document Role: {role_display}")
     console.print("All processing runs locally - no data leaves your machine\n")
     
     config = load_config()
@@ -462,7 +485,7 @@ def main(input_path: str, output_path: str, prior_year_path: Optional[str], extr
         console.print(f"[dim]Loaded prior year context from {prior_year_path}[/dim]")
     
     if input_path.is_dir():
-        process_directory(input_path, output_path, config, extraction_backend, prior_year_data)
+        process_directory(input_path, output_path, config, extraction_backend, document_role, prior_year_data)
     else:
         # Single file
         text = extract_text_from_pdf(input_path)
@@ -474,10 +497,19 @@ def main(input_path: str, output_path: str, prior_year_path: Optional[str], extr
         
         doc_data = extract_fn(text, doc_type, config, prior_year_data)
         doc_data["source_file"] = input_path.name
+        doc_data["document_role"] = document_role
+        
+        # Wrap single file in same structure as directory
+        output_data = {
+            "tax_year": doc_data.get("tax_year"),
+            "document_role": document_role,
+            "documents": [doc_data],
+            "summary": {}
+        }
         
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, 'w') as f:
-            json.dump(doc_data, f, indent=2)
+            json.dump(output_data, f, indent=2)
         
         console.print(f"[green]Extracted data written to {output_path}[/green]")
 

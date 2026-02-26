@@ -126,6 +126,23 @@ def main(
     Run the complete tax processing pipeline.
     
     This orchestrates all steps from raw PDFs to filled forms.
+    
+    \b
+    Expected directory structure:
+        data/raw/{year}/
+            sources/     - W-2s, 1099s, 1098s (input documents)
+            filed/       - Previously filed returns (optional, for reference)
+    
+    \b
+    Example:
+        data/raw/2025/
+            sources/
+                w2-employer1.pdf
+                1099-int-bank.pdf
+            filed/           (optional - prior draft or amendment reference)
+        data/raw/2024/
+            filed/
+                1040-filed.pdf   (last year's return for context)
     """
     backend_display = "Claude API" if backend == "claude" else "Local LLM (llama.cpp)"
     extraction_display = "Ollama" if extraction_backend == "ollama" else "Local LLM (llama.cpp)"
@@ -153,32 +170,83 @@ def main(
     config = load_config()
     project_root = Path(__file__).parent.parent
     
-    # Set up paths
+    # Set up paths with new directory structure
+    raw_base = project_root / config["paths"]["raw_documents"]
+    
     paths = {
-        "raw_input": project_root / config["paths"]["raw_documents"] / str(year),
-        "prior_year_raw": project_root / config["paths"]["raw_documents"] / str(year - 1),
-        "extracted": project_root / config["paths"]["extracted_data"] / f"{year}.json",
-        "prior_extracted": project_root / config["paths"]["extracted_data"] / f"{year - 1}.json",
-        "sanitized": project_root / config["paths"]["sanitized_data"] / f"{year}.json",
-        "prior_sanitized": project_root / config["paths"]["sanitized_data"] / f"{year - 1}.json",
+        # Current year
+        "current_sources": raw_base / str(year) / "sources",
+        "current_filed": raw_base / str(year) / "filed",
+        
+        # Prior year (both sources and filed available for context)
+        "prior_sources": raw_base / str(year - 1) / "sources",
+        "prior_filed": raw_base / str(year - 1) / "filed",
+        
+        # Extracted data (separated by year and role)
+        "extracted_current_sources": project_root / config["paths"]["extracted_data"] / f"{year}-sources.json",
+        "extracted_current_filed": project_root / config["paths"]["extracted_data"] / f"{year}-filed.json",
+        "extracted_prior_sources": project_root / config["paths"]["extracted_data"] / f"{year - 1}-sources.json",
+        "extracted_prior_filed": project_root / config["paths"]["extracted_data"] / f"{year - 1}-filed.json",
+        
+        # Sanitized data
+        "sanitized_current_sources": project_root / config["paths"]["sanitized_data"] / f"{year}-sources.json",
+        "sanitized_prior_filed": project_root / config["paths"]["sanitized_data"] / f"{year - 1}-filed.json",
+        
+        # Vault and output
         "vault": project_root / config["paths"]["vault"] / f"{year}.age",
+        "prior_vault": project_root / config["paths"]["vault"] / f"{year - 1}.age",
         "instructions": project_root / config["paths"]["instructions"] / f"{year}.json",
         "output": project_root / config["paths"]["output"] / str(year),
         "templates": project_root / config["paths"]["blank_forms"],
     }
     
-    # Verify input exists
-    if not paths["raw_input"].exists():
-        console.print(f"[red]Input directory not found: {paths['raw_input']}[/red]")
-        console.print("\nCreate this directory and add your tax documents:")
-        console.print(f"  mkdir -p {paths['raw_input']}")
+    # Verify current year sources exist
+    if not paths["current_sources"].exists():
+        console.print(f"[red]Sources directory not found: {paths['current_sources']}[/red]")
+        console.print("\nExpected directory structure:")
+        console.print(f"  {raw_base}/{year}/")
+        console.print(f"      sources/     <- Put W-2s, 1099s, 1098s here")
+        console.print(f"      filed/       <- (Optional) Put filed returns here")
+        console.print(f"\n  {raw_base}/{year - 1}/")
+        console.print(f"      sources/     <- (Optional) Prior year source docs")
+        console.print(f"      filed/       <- (Optional) Prior year filed return")
+        console.print("\nCreate the directory and add your tax documents:")
+        console.print(f"  mkdir -p {paths['current_sources']}")
         console.print(f"  # Add W-2s, 1099s, etc. as PDFs")
         sys.exit(1)
     
-    # Check for prior year data
-    has_prior_year = paths["prior_year_raw"].exists() or paths["prior_extracted"].exists()
-    if has_prior_year:
-        console.print(f"[green]✓ Found prior year ({year-1}) data for context[/green]")
+    # Check what's available
+    has_current_sources = paths["current_sources"].exists() and any(paths["current_sources"].glob("*.pdf"))
+    has_current_filed = paths["current_filed"].exists() and any(paths["current_filed"].glob("*.pdf"))
+    has_prior_sources = paths["prior_sources"].exists() and any(paths["prior_sources"].glob("*.pdf"))
+    has_prior_filed = paths["prior_filed"].exists() and any(paths["prior_filed"].glob("*.pdf"))
+    
+    console.print("\n[bold]Document Detection:[/bold]")
+    console.print(f"  [bold]{year}:[/bold]")
+    if has_current_sources:
+        pdf_count = len(list(paths["current_sources"].glob("*.pdf")))
+        console.print(f"    • sources/: [green]✓ {pdf_count} PDF(s)[/green]")
+    else:
+        console.print(f"    • sources/: [red]✗ Not found[/red]")
+    
+    if has_current_filed:
+        pdf_count = len(list(paths["current_filed"].glob("*.pdf")))
+        console.print(f"    • filed/:   [yellow]{pdf_count} PDF(s)[/yellow] (amendment mode?)")
+    else:
+        console.print(f"    • filed/:   [dim]Empty[/dim]")
+    
+    console.print(f"  [bold]{year - 1}:[/bold]")
+    if has_prior_sources:
+        pdf_count = len(list(paths["prior_sources"].glob("*.pdf")))
+        console.print(f"    • sources/: [green]✓ {pdf_count} PDF(s)[/green] (for reference)")
+    else:
+        console.print(f"    • sources/: [dim]Empty[/dim]")
+    
+    if has_prior_filed:
+        pdf_count = len(list(paths["prior_filed"].glob("*.pdf")))
+        console.print(f"    • filed/:   [green]✓ {pdf_count} PDF(s)[/green] (for context)")
+    else:
+        console.print(f"    • filed/:   [dim]Empty[/dim]")
     
     if not non_interactive:
         if not Confirm.ask("\nReady to proceed?"):
@@ -198,64 +266,67 @@ def main(
             sys.exit(1)
     
     # Create directories
-    for path in [paths["extracted"], paths["sanitized"], paths["vault"], 
-                 paths["instructions"], paths["output"]]:
-        path.parent.mkdir(parents=True, exist_ok=True)
+    for key in ["extracted_current_sources", "sanitized_current_sources", "vault", "instructions", "output"]:
+        paths[key].parent.mkdir(parents=True, exist_ok=True)
     
     # Track overall success
     success = True
     
-    # Step 1: Extract (if prior year exists and not extracted, do that first)
-    if has_prior_year and not paths["prior_extracted"].exists() and not skip_extract:
-        console.print(f"\n[dim]Extracting prior year ({year-1}) for context...[/dim]")
+    # Step 1a: Extract prior year filed returns (for context)
+    if has_prior_filed and not paths["extracted_prior_filed"].exists() and not skip_extract:
+        console.print(f"\n[dim]Extracting prior year filed return ({year-1}) for context...[/dim]")
         success = run_step(
-            f"Extract Prior Year ({year-1})",
+            f"Extract Prior Year Filed ({year-1})",
             [
                 sys.executable, "extract.py",
-                "--input", str(paths["prior_year_raw"]),
-                "--output", str(paths["prior_extracted"]),
-                "--extraction-backend", extraction_backend
+                "--input", str(paths["prior_filed"]),
+                "--output", str(paths["extracted_prior_filed"]),
+                "--extraction-backend", extraction_backend,
+                "--document-role", "filed_return"
             ]
         )
     
+    # Step 1b: Extract current year sources
     if not skip_extract:
         cmd = [
             sys.executable, "extract.py",
-            "--input", str(paths["raw_input"]),
-            "--output", str(paths["extracted"]),
-            "--extraction-backend", extraction_backend
+            "--input", str(paths["current_sources"]),
+            "--output", str(paths["extracted_current_sources"]),
+            "--extraction-backend", extraction_backend,
+            "--document-role", "source_document"
         ]
-        if paths["prior_extracted"].exists():
-            cmd.extend(["--prior-year", str(paths["prior_extracted"])])
+        # Use prior year filed as context during extraction if available
+        if paths["extracted_prior_filed"].exists():
+            cmd.extend(["--prior-year", str(paths["extracted_prior_filed"])])
         
         extraction_name = "Ollama" if extraction_backend == "ollama" else "Local LLM"
-        success = run_step(f"Extract {year} Documents ({extraction_name})", cmd) and success
+        success = run_step(f"Extract {year} Source Documents ({extraction_name})", cmd) and success
     
     if not success:
         console.print("[red]Extraction failed. Stopping.[/red]")
         sys.exit(1)
     
-    # Step 2: Sanitize
+    # Step 2a: Sanitize prior year filed (if exists)
     if not skip_sanitize:
-        # Sanitize prior year if needed
-        if paths["prior_extracted"].exists() and not paths["prior_sanitized"].exists():
+        if paths["extracted_prior_filed"].exists() and not paths["sanitized_prior_filed"].exists():
             run_step(
-                f"Sanitize Prior Year ({year-1})",
+                f"Sanitize Prior Year Filed ({year-1})",
                 [
                     sys.executable, "sanitize.py",
-                    "--input", str(paths["prior_extracted"]),
-                    "--output", str(paths["prior_sanitized"]),
-                    "--vault", str(paths["vault"].parent / f"{year-1}.age"),
+                    "--input", str(paths["extracted_prior_filed"]),
+                    "--output", str(paths["sanitized_prior_filed"]),
+                    "--vault", str(paths["prior_vault"]),
                     "--passphrase", passphrase
                 ]
             )
         
+        # Step 2b: Sanitize current year sources
         success = run_step(
-            f"Sanitize {year} Data",
+            f"Sanitize {year} Source Data",
             [
                 sys.executable, "sanitize.py",
-                "--input", str(paths["extracted"]),
-                "--output", str(paths["sanitized"]),
+                "--input", str(paths["extracted_current_sources"]),
+                "--output", str(paths["sanitized_current_sources"]),
                 "--vault", str(paths["vault"]),
                 "--passphrase", passphrase
             ]
@@ -269,12 +340,13 @@ def main(
     if not skip_process:
         cmd = [
             sys.executable, "process.py",
-            "--input", str(paths["sanitized"]),
+            "--input", str(paths["sanitized_current_sources"]),
             "--output", str(paths["instructions"]),
-            "--backend", backend
+            "--backend", backend,
+            "--tax-year", str(year)
         ]
-        if paths["prior_sanitized"].exists():
-            cmd.extend(["--prior-year", str(paths["prior_sanitized"])])
+        if paths["sanitized_prior_filed"].exists():
+            cmd.extend(["--prior-filed", str(paths["sanitized_prior_filed"])])
         
         backend_name = "Claude API" if backend == "claude" else "Local LLM"
         success = run_step(f"Process with {backend_name}", cmd) and success

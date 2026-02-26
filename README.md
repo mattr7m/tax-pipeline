@@ -89,18 +89,64 @@ tax-processor/
 │   ├── sanitize.py         # Remove sensitive data
 │   ├── process.py          # LLM tax logic (Claude or local)
 │   ├── assemble.py         # Re-inject data & fill forms
-│   └── orchestrate.py      # Run full pipeline
+│   ├── orchestrate.py      # Run full pipeline
+│   └── prepare_knowledge.py # Extract IRS instructions from PDF
 ├── data/
 │   ├── raw/                # Your original PDFs (gitignored)
-│   │   ├── 2024/          # Prior year filled forms
-│   │   └── 2025/          # Current year inputs
+│   │   ├── 2024/
+│   │   │   ├── sources/    # Prior year W-2s, 1099s (optional)
+│   │   │   └── filed/      # Prior year filed return (for context)
+│   │   │       └── 1040-filed.pdf
+│   │   └── 2025/
+│   │       ├── sources/    # Current year input documents
+│   │       │   ├── w2-employer1.pdf
+│   │       │   ├── 1099-int-bank.pdf
+│   │       │   └── 1098-mortgage.pdf
+│   │       └── filed/      # (Empty until you file)
 │   ├── extracted/          # Structured JSON from extraction
+│   │   ├── 2025-sources.json
+│   │   └── 2024-filed.json
 │   ├── sanitized/          # Cleaned data for LLM
 │   ├── vault/              # Encrypted sensitive data
 │   └── output/             # Final filled forms
+├── tax-knowledge/          # Tax reference data (per year)
+│   └── 2025/
+│       ├── tax-tables.json
+│       ├── form-1040-fields.json
+│       └── form-1040-instructions.md
 └── templates/
     └── blank-forms/        # Blank IRS forms for current year
 ```
+
+### Document Organization
+
+Each year has the same structure with `sources/` and `filed/` subdirectories:
+
+| Directory | Contents | Purpose |
+|-----------|----------|---------|
+| `{year}/sources/` | W-2s, 1099s, 1098s | Input documents for that tax year |
+| `{year}/filed/` | Completed 1040, schedules | Filed return (for reference/context) |
+
+### Year Rollover Workflow
+
+When a new tax year begins:
+
+```bash
+# After filing 2025 taxes, move your filed return:
+cp ~/Downloads/1040-signed.pdf data/raw/2025/filed/
+
+# Start 2026:
+mkdir -p data/raw/2026/sources
+mkdir -p data/raw/2026/filed
+
+# Add 2026 documents to data/raw/2026/sources/
+# The system will automatically use 2025/filed/ as prior year context
+```
+
+The orchestrator automatically:
+1. Extracts from `{year}/sources/` as input documents
+2. Extracts from `{year-1}/filed/` as prior year context (if present)
+3. Passes both to the LLM with appropriate roles
 
 ## Usage
 

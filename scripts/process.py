@@ -102,32 +102,52 @@ Use these exact values for calculations and the exact field IDs for form filling
 
 def build_user_prompt(
     sanitized_data: dict,
-    prior_year_context: Optional[dict],
+    prior_filed_context: Optional[dict],
+    prior_sources_context: Optional[dict] = None,
     forms_needed: Optional[list] = None
 ) -> str:
     """Build the user prompt for tax processing."""
+
+    doc_role = sanitized_data.get("document_role", "source_document")
+
     user_prompt = f"""Process the following tax data and provide form filling instructions.
 
-## Current Year Tax Data (Sanitized)
+## Current Year Source Documents (Sanitized)
+These are the input documents (W-2s, 1099s, 1098s, etc.) for the current tax year:
+
 ```json
 {json.dumps(sanitized_data, indent=2)}
 ```
 
 """
-    
-    if prior_year_context:
-        user_prompt += f"""## Prior Year Context (for reference)
+
+    if prior_filed_context:
+        prior_role = prior_filed_context.get("document_role", "filed_return")
+        user_prompt += f"""## Prior Year Filed Return (For Reference)
+This is last year's filed tax return. Use it to:
+- Carry forward relevant information (address, filing status, etc.)
+- Identify recurring items and any significant changes
+- Ensure consistency in how items are reported
+
 ```json
-{json.dumps(prior_year_context, indent=2)}
+{json.dumps(prior_filed_context, indent=2)}
 ```
 
-Use the prior year data to:
-- Carry forward relevant information (address, filing status, etc.)
-- Identify any significant changes year-over-year
-- Ensure consistency in recurring items
+"""
+
+    if prior_sources_context:
+        user_prompt += f"""## Prior Year Source Documents (For Reference)
+These are last year's W-2s, 1099s, and other input documents. Use them to:
+- Compare income sources year-over-year (new employers, closed accounts, etc.)
+- Identify missing documents (e.g., a 1099 received last year but not this year)
+- Verify continuity of recurring income streams
+
+```json
+{json.dumps(prior_sources_context, indent=2)}
+```
 
 """
-    
+
     if forms_needed:
         user_prompt += f"""## Forms to Prepare
 Based on the extracted data, prepare these forms: {', '.join(forms_needed)}
@@ -135,13 +155,18 @@ Based on the extracted data, prepare these forms: {', '.join(forms_needed)}
 """
     
     user_prompt += """## Instructions
-1. Determine filing status and verify forms needed
-2. Map each data point to specific PDF form fields using the field IDs from the reference data
-3. Perform all necessary calculations using the provided tax tables
-4. Flag any issues or missing information
-5. Provide a complete summary of the tax situation
+1. Determine filing status based on source documents and prior year context
+2. Map each data point from source documents to specific PDF form fields
+3. Use the exact field IDs from the reference data (e.g., "f1_25" for Line 1a wages)
+4. Perform all necessary calculations using the provided tax tables
+5. Flag any discrepancies between current and prior year
+6. Note any issues or missing information
 
-IMPORTANT: Use the exact PDF field IDs (like "f1_25") from the form field mappings provided.
+IMPORTANT:
+- Use current year source documents as the PRIMARY data for this year's return
+- Use prior year filed return only for REFERENCE (carry-forward info, consistency checks)
+- Use prior year source documents only for REFERENCE (year-over-year comparison, missing document detection)
+- Use the exact PDF field IDs from the form field mappings provided
 
 Return your analysis as structured JSON."""
 
@@ -153,7 +178,8 @@ def process_with_claude(
     prior_year_context: Optional[dict],
     config: dict,
     tax_knowledge_context: str = "",
-    forms_needed: Optional[list] = None
+    forms_needed: Optional[list] = None,
+    prior_sources_context: Optional[dict] = None
 ) -> dict:
     """
     Send sanitized data to Claude API for tax processing.
@@ -170,7 +196,7 @@ def process_with_claude(
     client = anthropic.Anthropic()  # Uses ANTHROPIC_API_KEY env var
     
     system_prompt = build_system_prompt(tax_knowledge_context)
-    user_prompt = build_user_prompt(sanitized_data, prior_year_context, forms_needed)
+    user_prompt = build_user_prompt(sanitized_data, prior_year_context, prior_sources_context, forms_needed)
 
     console.print("[dim]Sending sanitized data to Claude API...[/dim]")
     
@@ -194,7 +220,8 @@ def process_with_local_llm(
     prior_year_context: Optional[dict],
     config: dict,
     tax_knowledge_context: str = "",
-    forms_needed: Optional[list] = None
+    forms_needed: Optional[list] = None,
+    prior_sources_context: Optional[dict] = None
 ) -> dict:
     """
     Send sanitized data to local LLM server (llama.cpp with OpenAI-compatible API).
@@ -208,8 +235,8 @@ def process_with_local_llm(
     timeout = llm_config.get("timeout", 300)
     
     system_prompt = build_system_prompt(tax_knowledge_context)
-    user_prompt = build_user_prompt(sanitized_data, prior_year_context, forms_needed)
-    
+    user_prompt = build_user_prompt(sanitized_data, prior_year_context, prior_sources_context, forms_needed)
+
     console.print(f"[dim]Sending sanitized data to local LLM at {base_url}...[/dim]")
     console.print(f"[dim]Model: {model_name} | This may take a few minutes...[/dim]")
     
@@ -373,11 +400,13 @@ def determine_tax_year(sanitized_data: dict) -> int:
 
 @click.command()
 @click.option('--input', '-i', 'input_path', required=True,
-              type=click.Path(exists=True), help='Sanitized JSON input')
+              type=click.Path(exists=True), help='Sanitized source documents JSON')
 @click.option('--output', '-o', 'output_path', required=True,
               type=click.Path(), help='Output instructions JSON')
-@click.option('--prior-year', '-p', 'prior_year_path',
-              type=click.Path(exists=True), help='Prior year sanitized data')
+@click.option('--prior-filed', '-p', 'prior_filed_path',
+              type=click.Path(exists=True), help='Prior year filed return (sanitized) for context')
+@click.option('--prior-sources', '-s', 'prior_sources_path',
+              type=click.Path(exists=True), help='Prior year source documents (sanitized) for year-over-year comparison')
 @click.option('--backend', '-b', 'backend',
               type=click.Choice(['claude', 'local'], case_sensitive=False),
               default='claude',
@@ -389,7 +418,8 @@ def determine_tax_year(sanitized_data: dict) -> int:
 def main(
     input_path: str,
     output_path: str,
-    prior_year_path: Optional[str],
+    prior_filed_path: Optional[str],
+    prior_sources_path: Optional[str],
     backend: str,
     tax_year: Optional[int],
     no_knowledge: bool
@@ -402,6 +432,13 @@ def main(
     \b
     --backend claude : Use Claude API (requires ANTHROPIC_API_KEY env var)
     --backend local  : Use local LLM via llama.cpp server
+    
+    Input types:
+    
+    \b
+    --input         : Sanitized source documents (W-2s, 1099s, etc.)
+    --prior-filed   : Sanitized prior year filed return (for context)
+    --prior-sources : Sanitized prior year source documents (for year-over-year comparison)
     
     When using --backend local, tax knowledge (tables, form mappings, rules)
     is automatically loaded to provide current-year context to the LLM.
@@ -417,19 +454,39 @@ def main(
     input_path = Path(input_path)
     output_path = Path(output_path)
     
-    # Load sanitized data
+    # Load sanitized source documents
     with open(input_path) as f:
         sanitized_data = json.load(f)
     
-    # Load prior year if provided
-    prior_year_context = None
-    if prior_year_path:
-        with open(prior_year_path) as f:
-            prior_year_context = json.load(f)
-        console.print(f"[dim]Loaded prior year context from {prior_year_path}[/dim]")
+    # Display what we're processing
+    doc_role = sanitized_data.get("document_role", "unknown")
+    doc_count = len(sanitized_data.get("documents", []))
+    console.print(f"[dim]Input: {doc_count} documents (role: {doc_role})[/dim]")
     
+    # Load prior year filed return if provided
+    prior_filed_context = None
+    if prior_filed_path:
+        with open(prior_filed_path) as f:
+            prior_filed_context = json.load(f)
+        prior_role = prior_filed_context.get("document_role", "unknown")
+        prior_count = len(prior_filed_context.get("documents", []))
+        console.print(f"[dim]Prior filed: {prior_count} documents (role: {prior_role})[/dim]")
+
+    # Load prior year source documents if provided
+    prior_sources_context = None
+    if prior_sources_path:
+        with open(prior_sources_path) as f:
+            prior_sources_context = json.load(f)
+        prior_src_role = prior_sources_context.get("document_role", "unknown")
+        prior_src_count = len(prior_sources_context.get("documents", []))
+        console.print(f"[dim]Prior sources: {prior_src_count} documents (role: {prior_src_role})[/dim]")
+
     # Verify data is sanitized
     if not verify_sanitized(sanitized_data):
+        sys.exit(1)
+    if prior_filed_context and not verify_sanitized(prior_filed_context):
+        sys.exit(1)
+    if prior_sources_context and not verify_sanitized(prior_sources_context):
         sys.exit(1)
     
     console.print("[green]✓ Data verified as sanitized[/green]")
@@ -472,18 +529,20 @@ def main(
         if backend == "claude":
             results = process_with_claude(
                 sanitized_data,
-                prior_year_context,
+                prior_filed_context,
                 config,
                 tax_knowledge_context,
-                forms_needed
+                forms_needed,
+                prior_sources_context
             )
         else:
             results = process_with_local_llm(
                 sanitized_data,
-                prior_year_context,
+                prior_filed_context,
                 config,
                 tax_knowledge_context,
-                forms_needed
+                forms_needed,
+                prior_sources_context
             )
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
