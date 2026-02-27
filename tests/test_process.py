@@ -1,14 +1,21 @@
 """Tests for process.py — sanitization verification, prompt building, JSON parsing."""
 
 import json
+from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
+from click.testing import CliRunner
 
 from process import (
     build_system_prompt,
     build_user_prompt,
     determine_tax_year,
+    display_results,
+    main,
     parse_json_response,
+    process_with_claude,
+    process_with_local_llm,
     verify_sanitized,
     SYSTEM_PROMPT_BASE,
 )
@@ -123,21 +130,21 @@ class TestBuildUserPrompt:
     def test_includes_prior_year(self, sanitized_data):
         prior = {"tax_year": 2024, "summary": {"total_income": 70000}}
         prompt = build_user_prompt(sanitized_data, prior)
-        assert "Prior Year Context" in prompt
+        assert "Prior Year Filed Return" in prompt
         assert "2024" in prompt
 
     def test_no_prior_year(self, sanitized_data):
         prompt = build_user_prompt(sanitized_data, None)
-        assert "Prior Year" not in prompt
+        assert "Prior Year Filed Return" not in prompt
 
     def test_includes_forms_needed(self, sanitized_data):
-        prompt = build_user_prompt(sanitized_data, None, ["1040", "Schedule A"])
+        prompt = build_user_prompt(sanitized_data, None, forms_needed=["1040", "Schedule A"])
         assert "Forms to Prepare" in prompt
         assert "1040" in prompt
         assert "Schedule A" in prompt
 
     def test_no_forms_needed(self, sanitized_data):
-        prompt = build_user_prompt(sanitized_data, None, None)
+        prompt = build_user_prompt(sanitized_data, None, forms_needed=None)
         assert "Forms to Prepare" not in prompt
 
     def test_instructions_section(self, sanitized_data):
@@ -171,3 +178,198 @@ class TestProcessParseJsonResponse:
     def test_empty_string(self):
         result = parse_json_response("")
         assert "parse_error" in result
+
+
+class TestProcessWithClaude:
+    """Tests for Claude API integration (mocked)."""
+
+    def _make_mock_anthropic(self, response_text):
+        """Create a mock anthropic module with a configured client."""
+        mock_anthropic = MagicMock()
+        mock_client = MagicMock()
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_client.messages.create.return_value = MagicMock(
+            content=[MagicMock(text=response_text)]
+        )
+        return mock_anthropic, mock_client
+
+    def test_success(self, sanitized_data, test_config):
+        mock_anthropic, mock_client = self._make_mock_anthropic(
+            '{"tax_year": 2025, "forms_needed": ["1040"]}'
+        )
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+            result = process_with_claude(sanitized_data, None, test_config)
+        assert result["tax_year"] == 2025
+        assert "1040" in result["forms_needed"]
+
+    def test_includes_knowledge_in_system_prompt(self, sanitized_data, test_config):
+        mock_anthropic, mock_client = self._make_mock_anthropic('{"tax_year": 2025}')
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+            process_with_claude(
+                sanitized_data, None, test_config,
+                tax_knowledge_context="Standard deduction: $15,000"
+            )
+        call_kwargs = mock_client.messages.create.call_args[1]
+        assert "TAX YEAR REFERENCE DATA" in call_kwargs["system"]
+        assert "$15,000" in call_kwargs["system"]
+
+    def test_includes_forms_in_user_prompt(self, sanitized_data, test_config):
+        mock_anthropic, mock_client = self._make_mock_anthropic('{"tax_year": 2025}')
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+            process_with_claude(
+                sanitized_data, None, test_config,
+                forms_needed=["1040", "Schedule A"]
+            )
+        call_kwargs = mock_client.messages.create.call_args[1]
+        user_msg = call_kwargs["messages"][0]["content"]
+        assert "Forms to Prepare" in user_msg
+        assert "1040" in user_msg
+
+    def test_malformed_response(self, sanitized_data, test_config):
+        mock_anthropic, _ = self._make_mock_anthropic("Not valid JSON at all")
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+            result = process_with_claude(sanitized_data, None, test_config)
+        assert "parse_error" in result
+
+    def test_import_error_exits(self, sanitized_data, test_config):
+        with patch.dict("sys.modules", {"anthropic": None}):
+            with pytest.raises(SystemExit):
+                process_with_claude(sanitized_data, None, test_config)
+
+
+class TestProcessWithLocalLlm:
+    """Tests for local LLM integration (mocked)."""
+
+    @patch("process.requests.post")
+    def test_success_openai_format(self, mock_post, sanitized_data, test_config):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": '{"tax_year": 2025}'}}]
+        }
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
+        result = process_with_local_llm(sanitized_data, None, test_config)
+        assert result["tax_year"] == 2025
+
+    @patch("process.requests.post")
+    def test_success_direct_content(self, mock_post, sanitized_data, test_config):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"content": '{"tax_year": 2025}'}
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
+        result = process_with_local_llm(sanitized_data, None, test_config)
+        assert result["tax_year"] == 2025
+
+    @patch("process.requests.post", side_effect=requests.exceptions.ConnectionError)
+    def test_connection_error_exits(self, mock_post, sanitized_data, test_config):
+        with pytest.raises(SystemExit):
+            process_with_local_llm(sanitized_data, None, test_config)
+
+    @patch("process.requests.post", side_effect=requests.exceptions.Timeout)
+    def test_timeout_exits(self, mock_post, sanitized_data, test_config):
+        with pytest.raises(SystemExit):
+            process_with_local_llm(sanitized_data, None, test_config)
+
+    @patch("process.requests.post")
+    def test_http_error_exits(self, mock_post, sanitized_data, test_config):
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=MagicMock(status_code=500, text="Internal error")
+        )
+        mock_post.return_value = mock_response
+
+        with pytest.raises(SystemExit):
+            process_with_local_llm(sanitized_data, None, test_config)
+
+
+class TestDisplayResults:
+    """Tests for result display formatting."""
+
+    @patch("process.console")
+    def test_parse_error(self, mock_console):
+        display_results({"parse_error": "bad json", "raw_response": "text"})
+        output = " ".join(str(c) for c in mock_console.print.call_args_list)
+        assert "parsed" in output.lower() or "JSON" in output
+
+    @patch("process.console")
+    def test_summary(self, mock_console, instructions_data):
+        display_results(instructions_data)
+        # Should not crash; console.print called at least once
+        assert mock_console.print.called
+
+    @patch("process.console")
+    def test_warnings(self, mock_console):
+        display_results({"warnings": ["Check deductions"]})
+        output = " ".join(str(c) for c in mock_console.print.call_args_list)
+        assert "Check deductions" in output
+
+    @patch("process.console")
+    def test_empty_no_crash(self, mock_console):
+        display_results({})
+        # Should not raise any exception
+
+
+class TestProcessMain:
+    """Tests for the process.py CLI entry point."""
+
+    @patch("process.load_config")
+    def test_unsanitized_rejected(self, mock_config, tmp_path, test_config, extracted_data):
+        mock_config.return_value = test_config
+        input_file = tmp_path / "extracted.json"
+        input_file.write_text(json.dumps(extracted_data))
+        output_file = tmp_path / "output.json"
+
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "--input", str(input_file),
+            "--output", str(output_file),
+            "--backend", "claude",
+            "--no-knowledge",
+        ])
+        assert result.exit_code != 0
+
+    @patch("process.process_with_claude")
+    @patch("process.load_knowledge_for_processing", return_value=("", ["1040"]))
+    @patch("process.load_config")
+    def test_claude_backend_dispatches(
+        self, mock_config, mock_knowledge, mock_claude,
+        tmp_path, test_config, sanitized_data, instructions_data
+    ):
+        mock_config.return_value = test_config
+        mock_claude.return_value = instructions_data
+        input_file = tmp_path / "sanitized.json"
+        input_file.write_text(json.dumps(sanitized_data))
+        output_file = tmp_path / "output.json"
+
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "--input", str(input_file),
+            "--output", str(output_file),
+            "--backend", "claude",
+        ])
+        assert result.exit_code == 0
+        assert mock_claude.called
+
+    @patch("process.process_with_local_llm")
+    @patch("process.load_knowledge_for_processing", return_value=("", ["1040"]))
+    @patch("process.load_config")
+    def test_local_backend_dispatches(
+        self, mock_config, mock_knowledge, mock_local,
+        tmp_path, test_config, sanitized_data, instructions_data
+    ):
+        mock_config.return_value = test_config
+        mock_local.return_value = instructions_data
+        input_file = tmp_path / "sanitized.json"
+        input_file.write_text(json.dumps(sanitized_data))
+        output_file = tmp_path / "output.json"
+
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "--input", str(input_file),
+            "--output", str(output_file),
+            "--backend", "local",
+        ])
+        assert result.exit_code == 0
+        assert mock_local.called

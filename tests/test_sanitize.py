@@ -4,11 +4,15 @@ This is the highest-priority test module because the sanitizer is the
 privacy guarantee: a missed regex here leaks real SSNs to cloud APIs.
 """
 
+import base64
 import json
+import subprocess
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from sanitize import Sanitizer
+from sanitize import Sanitizer, decrypt_vault, encrypt_vault
 
 
 class TestSanitizerTokenGeneration:
@@ -190,3 +194,73 @@ class TestSanitizerEdgeCases:
         assert "000-00-1234" not in result
         assert "99-8765432" not in result
         assert "$75000" in result
+
+
+class TestEncryptVault:
+    """Tests for vault encryption via age CLI."""
+
+    @patch("sanitize.subprocess.run")
+    def test_encrypt_with_age(self, mock_run, tmp_path, vault_data):
+        output_path = tmp_path / "test.age"
+        encrypt_vault(vault_data, output_path, "mypassphrase")
+
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args
+        assert call_args[0][0] == ["age", "-p", "-o", str(output_path)]
+        assert call_args[1]["input"] == json.dumps(vault_data, indent=2).encode()
+        assert "AGE_PASSPHRASE" in call_args[1]["env"]
+        assert call_args[1]["env"]["AGE_PASSPHRASE"] == "mypassphrase"
+
+    @patch("sanitize.subprocess.run", side_effect=FileNotFoundError("age not found"))
+    def test_fallback_base64(self, mock_run, tmp_path, vault_data):
+        output_path = tmp_path / "test.age"
+        encrypt_vault(vault_data, output_path, "mypassphrase")
+
+        # Should have written a base64-encoded file
+        assert output_path.exists()
+        decoded = base64.b64decode(output_path.read_text()).decode()
+        assert json.loads(decoded) == vault_data
+
+    @patch("sanitize.subprocess.run")
+    def test_called_process_error_raises(self, mock_run, tmp_path, vault_data):
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, "age", stderr=b"bad passphrase"
+        )
+        with pytest.raises(subprocess.CalledProcessError):
+            encrypt_vault(vault_data, tmp_path / "test.age", "bad")
+
+
+class TestDecryptVault:
+    """Tests for vault decryption via age CLI."""
+
+    @patch("sanitize.subprocess.run")
+    def test_decrypt_with_age(self, mock_run, vault_data):
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(vault_data).encode()
+        )
+        result = decrypt_vault(Path("fake.age"), "pass")
+        assert result == vault_data
+
+    @patch("sanitize.subprocess.run", side_effect=FileNotFoundError)
+    def test_fallback_base64(self, mock_run, tmp_path, vault_data):
+        vault_file = tmp_path / "test.age"
+        encoded = base64.b64encode(json.dumps(vault_data).encode()).decode()
+        vault_file.write_text(encoded)
+
+        result = decrypt_vault(vault_file, "pass")
+        assert result == vault_data
+
+    @patch("sanitize.subprocess.run")
+    def test_called_process_error_raises(self, mock_run):
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, "age", stderr=b"wrong passphrase"
+        )
+        with pytest.raises(subprocess.CalledProcessError):
+            decrypt_vault(Path("fake.age"), "bad")
+
+    @patch("sanitize.subprocess.run", side_effect=FileNotFoundError)
+    def test_bad_base64_raises(self, mock_run, tmp_path):
+        vault_file = tmp_path / "bad.age"
+        vault_file.write_text("not-valid-base64!!!")
+        with pytest.raises(Exception):
+            decrypt_vault(vault_file, "pass")

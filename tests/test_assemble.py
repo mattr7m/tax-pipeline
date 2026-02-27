@@ -1,10 +1,24 @@
 """Tests for assemble.py — token rehydration and template finding."""
 
+import base64
 import json
+import subprocess
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
+from click.testing import CliRunner
 
-from assemble import find_template, rehydrate_data
+from assemble import (
+    assemble_forms,
+    decrypt_vault,
+    fill_pdf_form,
+    find_template,
+    generate_review_document,
+    get_pdf_form_fields,
+    main,
+    rehydrate_data,
+)
 
 
 class TestRehydrateData:
@@ -82,3 +96,238 @@ class TestFindTemplate:
         empty_dir.mkdir()
         result = find_template("1040", empty_dir)
         assert result is None
+
+
+class TestDecryptVaultAssemble:
+    """Tests for vault decryption in assemble.py (mocked)."""
+
+    @patch("assemble.subprocess.run")
+    def test_age_success(self, mock_run, vault_data):
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(vault_data).encode()
+        )
+        result = decrypt_vault(Path("fake.age"), "pass")
+        assert result == vault_data
+
+    @patch("assemble.subprocess.run", side_effect=FileNotFoundError)
+    def test_base64_fallback(self, mock_run, tmp_path, vault_data):
+        vault_file = tmp_path / "test.age"
+        encoded = base64.b64encode(json.dumps(vault_data).encode()).decode()
+        vault_file.write_text(encoded)
+
+        result = decrypt_vault(vault_file, "pass")
+        assert result == vault_data
+
+    @patch("assemble.subprocess.run")
+    def test_error_raises(self, mock_run):
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, "age", stderr=b"bad"
+        )
+        with pytest.raises(subprocess.CalledProcessError):
+            decrypt_vault(Path("fake.age"), "pass")
+
+
+class TestGetPdfFormFields:
+    """Tests for PDF form field reading."""
+
+    def test_fillpdf_backend(self):
+        import assemble
+        mock_fillpdfs = MagicMock()
+        mock_fillpdfs.get_form_fields.return_value = {"f1_01": ""}
+        with patch.object(assemble, "HAS_FILLPDF", True), \
+             patch.object(assemble, "HAS_PYMUPDF", False), \
+             patch.object(assemble, "fillpdfs", mock_fillpdfs, create=True):
+            result = get_pdf_form_fields(Path("fake.pdf"))
+        assert result == {"f1_01": ""}
+
+    @patch("assemble.HAS_FILLPDF", False)
+    @patch("assemble.HAS_PYMUPDF", True)
+    @patch("assemble.fitz")
+    def test_pymupdf_backend(self, mock_fitz):
+        mock_widget = MagicMock()
+        mock_widget.field_name = "f1_01"
+        mock_widget.field_value = ""
+        mock_page = MagicMock()
+        mock_page.widgets.return_value = [mock_widget]
+        mock_doc = MagicMock()
+        mock_doc.__iter__ = lambda self: iter([mock_page])
+        mock_fitz.open.return_value = mock_doc
+
+        result = get_pdf_form_fields(Path("fake.pdf"))
+        assert "f1_01" in result
+
+    @patch("assemble.HAS_FILLPDF", False)
+    @patch("assemble.HAS_PYMUPDF", False)
+    def test_no_backend(self):
+        result = get_pdf_form_fields(Path("fake.pdf"))
+        assert result == {}
+
+
+class TestFillPdfForm:
+    """Tests for PDF form filling."""
+
+    def test_fillpdf_success(self, tmp_path):
+        import assemble
+        mock_fillpdfs = MagicMock()
+        with patch.object(assemble, "HAS_FILLPDF", True), \
+             patch.object(assemble, "HAS_PYMUPDF", False), \
+             patch.object(assemble, "fillpdfs", mock_fillpdfs, create=True):
+            result = fill_pdf_form(
+                Path("template.pdf"), tmp_path / "out.pdf",
+                {"f1_01": "Jane"}, flatten=False
+            )
+        assert result is True
+        mock_fillpdfs.write_fillable_pdf.assert_called_once()
+
+    def test_fillpdf_exception_returns_false(self, tmp_path):
+        import assemble
+        mock_fillpdfs = MagicMock()
+        mock_fillpdfs.write_fillable_pdf.side_effect = Exception("pdf error")
+        with patch.object(assemble, "HAS_FILLPDF", True), \
+             patch.object(assemble, "HAS_PYMUPDF", False), \
+             patch.object(assemble, "fillpdfs", mock_fillpdfs, create=True):
+            result = fill_pdf_form(
+                Path("template.pdf"), tmp_path / "out.pdf", {"f1_01": "Jane"}
+            )
+        assert result is False
+
+    @patch("assemble.HAS_FILLPDF", False)
+    @patch("assemble.HAS_PYMUPDF", True)
+    @patch("assemble.fitz")
+    def test_pymupdf_success(self, mock_fitz, tmp_path):
+        mock_widget = MagicMock()
+        mock_widget.field_name = "f1_01"
+        mock_page = MagicMock()
+        mock_page.widgets.return_value = [mock_widget]
+        mock_doc = MagicMock()
+        mock_doc.__iter__ = lambda self: iter([mock_page])
+        mock_fitz.open.return_value = mock_doc
+
+        result = fill_pdf_form(
+            Path("template.pdf"), tmp_path / "out.pdf",
+            {"f1_01": "Jane"}, flatten=False
+        )
+        assert result is True
+        mock_doc.save.assert_called_once()
+
+    @patch("assemble.HAS_FILLPDF", False)
+    @patch("assemble.HAS_PYMUPDF", False)
+    def test_no_library_returns_false(self, tmp_path):
+        result = fill_pdf_form(
+            Path("template.pdf"), tmp_path / "out.pdf", {"f1_01": "Jane"}
+        )
+        assert result is False
+
+
+class TestAssembleForms:
+    """Tests for form assembly orchestration."""
+
+    @patch("assemble.fill_pdf_form", return_value=True)
+    @patch("assemble.find_template", return_value=Path("fake.pdf"))
+    def test_assembles_all(self, mock_find, mock_fill, tmp_path, instructions_data):
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        result = assemble_forms(instructions_data, tmp_path, output_dir)
+        assert len(result) == 1  # One form (1040)
+        assert mock_fill.called
+
+    @patch("assemble.fill_pdf_form")
+    @patch("assemble.find_template", return_value=None)
+    def test_template_not_found_skipped(self, mock_find, mock_fill, tmp_path, instructions_data):
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        result = assemble_forms(instructions_data, tmp_path, output_dir)
+        assert len(result) == 0
+        mock_fill.assert_not_called()
+
+    @patch("assemble.fill_pdf_form", return_value=False)
+    @patch("assemble.find_template", return_value=Path("fake.pdf"))
+    def test_fill_failure_excluded(self, mock_find, mock_fill, tmp_path, instructions_data):
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        result = assemble_forms(instructions_data, tmp_path, output_dir)
+        assert len(result) == 0
+
+
+class TestGenerateReviewDocument:
+    """Tests for REVIEW.md generation."""
+
+    def test_creates_file(self, tmp_path, instructions_data):
+        output = tmp_path / "REVIEW.md"
+        generate_review_document(instructions_data, output)
+        assert output.exists()
+
+    def test_includes_summary(self, tmp_path, instructions_data):
+        output = tmp_path / "REVIEW.md"
+        generate_review_document(instructions_data, output)
+        content = output.read_text()
+        assert "75,850.00" in content
+        assert "15,000.00" in content
+
+    def test_includes_warnings(self, tmp_path, instructions_data):
+        output = tmp_path / "REVIEW.md"
+        generate_review_document(instructions_data, output)
+        content = output.read_text()
+        assert "Verify standard deduction" in content
+
+    def test_empty_instructions(self, tmp_path):
+        output = tmp_path / "REVIEW.md"
+        generate_review_document({}, output)
+        assert output.exists()
+        content = output.read_text()
+        assert "Tax Return Review Document" in content
+
+
+class TestAssembleMain:
+    """Tests for the assemble.py CLI entry point."""
+
+    @patch("assemble.load_config")
+    @patch("assemble.decrypt_vault", side_effect=Exception("bad passphrase"))
+    def test_decrypt_failure_exits(self, mock_decrypt, mock_config, tmp_path, test_config, instructions_data):
+        mock_config.return_value = test_config
+        inst_file = tmp_path / "instructions.json"
+        inst_file.write_text(json.dumps(instructions_data))
+        vault_file = tmp_path / "vault.age"
+        vault_file.write_text("fake")
+        templates = tmp_path / "templates"
+        templates.mkdir()
+
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "--instructions", str(inst_file),
+            "--vault", str(vault_file),
+            "--templates", str(templates),
+            "--output", str(tmp_path / "output"),
+            "--passphrase", "bad",
+        ])
+        assert result.exit_code != 0
+
+    @patch("assemble.generate_review_document")
+    @patch("assemble.assemble_forms", return_value=[Path("1040.pdf")])
+    @patch("assemble.decrypt_vault")
+    @patch("assemble.load_config")
+    def test_full_assembly_success(
+        self, mock_config, mock_decrypt, mock_assemble, mock_review,
+        tmp_path, test_config, instructions_data, vault_data
+    ):
+        mock_config.return_value = test_config
+        mock_decrypt.return_value = vault_data
+
+        inst_file = tmp_path / "instructions.json"
+        inst_file.write_text(json.dumps(instructions_data))
+        vault_file = tmp_path / "vault.age"
+        vault_file.write_text("fake")
+        templates = tmp_path / "templates"
+        templates.mkdir()
+
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "--instructions", str(inst_file),
+            "--vault", str(vault_file),
+            "--templates", str(templates),
+            "--output", str(tmp_path / "output"),
+            "--passphrase", "testpass",
+        ])
+        assert result.exit_code == 0
+        assert mock_assemble.called
+        assert mock_review.called

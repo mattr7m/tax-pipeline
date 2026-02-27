@@ -197,3 +197,29 @@ def templates_dir(tmp_path):
     (tpl / "f1040.pdf").write_bytes(b"%PDF-1.4 fake")
     (tpl / "schedule-a.pdf").write_bytes(b"%PDF-1.4 fake")
     return tpl
+
+
+@pytest.fixture
+def tmp_sanitized_file(tmp_path, sanitized_data):
+    """Write sanitized data to a temporary JSON file for CLI tests."""
+    f = tmp_path / "sanitized.json"
+    f.write_text(json.dumps(sanitized_data, indent=2))
+    return f
+
+
+@pytest.fixture
+def tmp_instructions_file(tmp_path, instructions_data):
+    """Write instructions data to a temporary JSON file for CLI tests."""
+    f = tmp_path / "instructions.json"
+    f.write_text(json.dumps(instructions_data, indent=2))
+    return f
+
+
+@pytest.fixture
+def tmp_vault_file(tmp_path, vault_data):
+    """Write vault data base64-encoded to a temporary file for CLI tests."""
+    import base64
+    f = tmp_path / "vault.age"
+    encoded = base64.b64encode(json.dumps(vault_data).encode()).decode()
+    f.write_text(encoded)
+    return f

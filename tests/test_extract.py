@@ -1,13 +1,23 @@
 """Tests for extract.py — document detection, JSON parsing, prompt building, summaries."""
 
 import json
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
+from click.testing import CliRunner
 
 from extract import (
     build_extraction_prompt,
+    check_backend_available,
     detect_document_type,
+    extract_text_from_pdf,
+    extract_with_local_llm,
+    extract_with_ollama,
+    main,
     parse_json_response,
+    process_directory,
     update_summary,
 )
 
@@ -215,3 +225,183 @@ class TestUpdateSummary:
         doc_data = {"wages": 75000}
         update_summary(summary, doc_data, "unknown")
         assert summary["income"] == {}
+
+
+class TestExtractTextFromPdf:
+    """Tests for PDF text extraction with OCR fallback (mocked)."""
+
+    @patch("extract.fitz")
+    def test_text_extraction_no_ocr(self, mock_fitz):
+        """When page has enough text, OCR should not be triggered."""
+        mock_page = MagicMock()
+        mock_page.get_text.return_value = "A" * 100  # More than 50 chars
+        mock_doc = MagicMock()
+        mock_doc.__iter__ = lambda self: iter([mock_page])
+        mock_fitz.open.return_value = mock_doc
+
+        result = extract_text_from_pdf(Path("fake.pdf"))
+        assert "A" * 100 in result
+        mock_page.get_pixmap.assert_not_called()
+        mock_doc.close.assert_called_once()
+
+    @patch("extract.pytesseract")
+    @patch("extract.fitz")
+    def test_ocr_fallback(self, mock_fitz, mock_pytesseract):
+        """Short text triggers OCR."""
+        mock_page = MagicMock()
+        mock_page.get_text.return_value = "Hi"  # Less than 50 chars
+        mock_pix = MagicMock()
+        mock_pix.tobytes.return_value = b"\x89PNG\r\n\x1a\n"  # PNG header bytes
+        mock_page.get_pixmap.return_value = mock_pix
+        mock_doc = MagicMock()
+        mock_doc.__iter__ = lambda self: iter([mock_page])
+        mock_fitz.open.return_value = mock_doc
+        mock_fitz.Matrix.return_value = MagicMock()
+        mock_pytesseract.image_to_string.return_value = "OCR extracted text here"
+
+        with patch("extract.Image") as mock_image:
+            mock_image.open.return_value = MagicMock()
+            result = extract_text_from_pdf(Path("fake.pdf"))
+
+        assert "OCR extracted text" in result
+
+    @patch("extract.fitz")
+    def test_multi_page(self, mock_fitz):
+        pages = []
+        for i in range(3):
+            p = MagicMock()
+            p.get_text.return_value = f"Content of page {i+1} " + "x" * 50
+            pages.append(p)
+
+        mock_doc = MagicMock()
+        mock_doc.__iter__ = lambda self: iter(pages)
+        mock_fitz.open.return_value = mock_doc
+
+        result = extract_text_from_pdf(Path("fake.pdf"))
+        assert "Page 1" in result
+        assert "Page 2" in result
+        assert "Page 3" in result
+
+
+class TestExtractWithOllama:
+    """Tests for Ollama extraction (mocked)."""
+
+    def test_success(self, test_config):
+        mock_ollama = MagicMock()
+        mock_ollama.chat.return_value = {
+            "message": {"content": '{"document_type": "w2", "wages": 75000}'}
+        }
+
+        with patch.dict("sys.modules", {"ollama": mock_ollama}):
+            result = extract_with_ollama("doc text", "w2", test_config)
+
+        assert result["document_type"] == "w2"
+        assert result["wages"] == 75000
+
+    def test_ollama_exception_propagates(self, test_config):
+        mock_ollama = MagicMock()
+        mock_ollama.chat.side_effect = Exception("connection refused")
+
+        with patch.dict("sys.modules", {"ollama": mock_ollama}):
+            with pytest.raises(Exception, match="connection refused"):
+                extract_with_ollama("text", "w2", test_config)
+
+
+class TestExtractWithLocalLlm:
+    """Tests for local LLM extraction (mocked)."""
+
+    @patch("extract.requests.post")
+    def test_success(self, mock_post, test_config):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": '{"document_type": "w2", "wages": 75000}'}}]
+        }
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
+        result = extract_with_local_llm("text", "w2", test_config)
+        assert result["document_type"] == "w2"
+
+    @patch("extract.requests.post", side_effect=requests.exceptions.ConnectionError)
+    def test_connection_error_exits(self, mock_post, test_config):
+        with pytest.raises(SystemExit):
+            extract_with_local_llm("text", "w2", test_config)
+
+    @patch("extract.requests.post", side_effect=requests.exceptions.Timeout)
+    def test_timeout_exits(self, mock_post, test_config):
+        with pytest.raises(SystemExit):
+            extract_with_local_llm("text", "w2", test_config)
+
+
+class TestProcessDirectory:
+    """Tests for directory processing (mocked)."""
+
+    @patch("extract.extract_with_ollama")
+    @patch("extract.detect_document_type")
+    @patch("extract.extract_text_from_pdf")
+    def test_processes_all_pdfs(self, mock_extract_pdf, mock_detect, mock_ollama, tmp_path, test_config):
+        # Create fake PDF files
+        input_dir = tmp_path / "input"
+        input_dir.mkdir()
+        (input_dir / "w2.pdf").write_bytes(b"%PDF")
+        (input_dir / "1099.pdf").write_bytes(b"%PDF")
+
+        mock_extract_pdf.return_value = "W-2 content here with enough text"
+        mock_detect.return_value = ("w2", 0.9)
+        mock_ollama.return_value = {"document_type": "w2", "wages": 50000, "tax_year": 2025}
+
+        output_file = tmp_path / "output.json"
+        result = process_directory(input_dir, output_file, test_config, "ollama")
+
+        assert len(result["documents"]) == 2
+        assert output_file.exists()
+
+    @patch("extract.extract_text_from_pdf")
+    def test_no_pdfs_empty(self, mock_extract, tmp_path, test_config):
+        input_dir = tmp_path / "empty"
+        input_dir.mkdir()
+
+        result = process_directory(input_dir, tmp_path / "out.json", test_config, "ollama")
+        assert result == {}
+
+
+class TestCheckBackendAvailable:
+    """Tests for backend availability checks."""
+
+    def test_ollama_available(self, test_config):
+        mock_ollama = MagicMock()
+        with patch.dict("sys.modules", {"ollama": mock_ollama}):
+            assert check_backend_available("ollama", test_config) is True
+
+    def test_ollama_unavailable(self, test_config):
+        mock_ollama = MagicMock()
+        mock_ollama.list.side_effect = Exception("not running")
+        with patch.dict("sys.modules", {"ollama": mock_ollama}):
+            assert check_backend_available("ollama", test_config) is False
+
+    @patch("extract.requests.get", return_value=MagicMock(status_code=200))
+    def test_local_available(self, mock_get, test_config):
+        assert check_backend_available("local", test_config) is True
+
+    @patch("extract.requests.get", side_effect=Exception("refused"))
+    def test_local_unavailable(self, mock_get, test_config):
+        assert check_backend_available("local", test_config) is False
+
+
+class TestExtractMain:
+    """Tests for the extract.py CLI entry point."""
+
+    @patch("extract.check_backend_available", return_value=False)
+    @patch("extract.load_config")
+    def test_backend_unavailable_exits(self, mock_config, mock_check, tmp_path, test_config):
+        mock_config.return_value = test_config
+        input_dir = tmp_path / "input"
+        input_dir.mkdir()
+        (input_dir / "test.pdf").write_bytes(b"%PDF")
+
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "--input", str(input_dir),
+            "--output", str(tmp_path / "out.json"),
+        ])
+        assert result.exit_code != 0
