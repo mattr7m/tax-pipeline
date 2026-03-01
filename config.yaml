@@ -10,6 +10,8 @@ paths:
   output: "data/output"
   blank_forms: "templates/blank-forms"
   tax_knowledge: "tax-knowledge"
+  dashboard: "tax-dashboard.html"
+  dashboard_state: "data/dashboard-state.json"
 
 # Ollama settings (for extraction when --extraction-backend ollama)
 ollama:

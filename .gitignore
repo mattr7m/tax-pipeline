@@ -168,6 +168,9 @@ config.dev.yaml
 test_output/
 test_data/
 
+# Generated dashboard (contains local file paths)
+tax-dashboard.html
+
 # Downloaded IRS PDFs (large files)
 downloads/
 *.pdf

@@ -246,6 +246,20 @@ def main(input_path: str, output_path: str, vault_path: str, passphrase: str):
     sample = json.dumps(sanitized_data, indent=2)[:500]
     console.print(f"[dim]{sample}...[/dim]")
 
+    # Update dashboard
+    try:
+        from dashboard import update_phase, regenerate_html
+        project_root = Path(__file__).parent.parent
+        basename = output_path.name.lower()
+        if "filed" in basename:
+            category = "prior_filed"
+        else:
+            category = "current_sources"
+        update_phase(project_root, "sanitized_input", category, [output_path])
+        regenerate_html(project_root)
+    except Exception:
+        pass  # Dashboard update is non-critical
+
 
 if __name__ == "__main__":
     main()
