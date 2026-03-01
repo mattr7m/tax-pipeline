@@ -517,6 +517,42 @@ def regenerate_html(project_root: Path) -> Path:
   .phase-how-to pre {{ background: #f5f5f5; padding: 8px; border-radius: 4px; overflow-x: auto; font-size: 11px; margin: 4px 0; }}
   .mobile-view ul.file-list li {{ font-size: 14px; padding: 3px 0; }}
 
+  /* Dark mode toggle */
+  .header {{ display: flex; align-items: baseline; justify-content: space-between; }}
+  .theme-toggle {{ background: none; border: 1px solid #ccc; border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer; color: inherit; }}
+  .theme-toggle:hover {{ background: #eee; }}
+
+  /* Dark mode overrides */
+  [data-theme="dark"] {{ background: #1a1a2e; color: #ddd; }}
+  [data-theme="dark"] .meta {{ color: #999; }}
+  [data-theme="dark"] .theme-toggle {{ border-color: #555; }}
+  [data-theme="dark"] .theme-toggle:hover {{ background: #2a2a3e; }}
+  [data-theme="dark"] .phase-card {{ background: #16213e; border-color: #2a2a4a; }}
+  [data-theme="dark"] .phase-card > h2 {{ background: #0f3460; }}
+  [data-theme="dark"] .category + .category {{ border-color: #2a2a4a; }}
+  [data-theme="dark"] .category h3 {{ color: #aaa; }}
+  [data-theme="dark"] ul.file-list li.empty {{ color: #555; }}
+  [data-theme="dark"] .found a {{ color: #66bb6a; }}
+  [data-theme="dark"] .missing a {{ color: #666; }}
+  [data-theme="dark"] .arrow {{ color: #5c6bc0; }}
+  [data-theme="dark"] details summary {{ color: #888; }}
+  [data-theme="dark"] details pre {{ background: #0d1117; border-color: #2a2a4a; color: #ccc; }}
+  [data-theme="dark"] .json-key {{ color: #79b8ff; }}
+  [data-theme="dark"] .json-str {{ color: #85e89d; }}
+  [data-theme="dark"] .json-num {{ color: #ffab70; }}
+  [data-theme="dark"] .json-bool {{ color: #b392f0; }}
+  [data-theme="dark"] .md-preview {{ background: #0d1117; border-color: #2a2a4a; color: #ccc; }}
+  [data-theme="dark"] .md-preview h1, [data-theme="dark"] .md-preview h2, [data-theme="dark"] .md-preview h3 {{ color: #aaa; }}
+  [data-theme="dark"] .md-preview h1 {{ border-color: #2a2a4a; }}
+  [data-theme="dark"] .md-preview code {{ background: #2a2a3e; }}
+  [data-theme="dark"] .md-preview pre {{ background: #2a2a3e; }}
+  [data-theme="dark"] .md-preview th {{ background: #1a1a2e; }}
+  [data-theme="dark"] .md-preview th, [data-theme="dark"] .md-preview td {{ border-color: #2a2a4a; }}
+  [data-theme="dark"] .badge-complete {{ background: #1b5e20; color: #a5d6a7; }}
+  [data-theme="dark"] .phase-how-to {{ border-color: #2a2a4a; }}
+  [data-theme="dark"] .phase-how-to summary {{ color: #888; }}
+  [data-theme="dark"] .phase-how-to pre {{ background: #0d1117; }}
+
   @media (max-width: 900px) {{
     .desktop-view {{ display: none; }}
     .mobile-view {{ display: block; }}
@@ -525,8 +561,13 @@ def regenerate_html(project_root: Path) -> Path:
 </head>
 <body>
 
-<h1>Tax Pipeline Dashboard</h1>
-<p class="meta">Year: {year} | Prior year: {prior} | Updated: {updated}</p>
+<div class="header">
+  <div>
+    <h1>Tax Pipeline Dashboard</h1>
+    <p class="meta">Year: {year} | Prior year: {prior} | Updated: {updated}</p>
+  </div>
+  <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">Dark</button>
+</div>
 {processing_badge}
 
 <div class="desktop-view">
@@ -537,6 +578,26 @@ def regenerate_html(project_root: Path) -> Path:
 {cards_html}
 </div>
 
+<script>
+function toggleTheme() {{
+  var b = document.body, btn = document.getElementById('theme-btn');
+  if (b.getAttribute('data-theme') === 'dark') {{
+    b.removeAttribute('data-theme');
+    btn.textContent = 'Dark';
+    localStorage.setItem('theme', 'light');
+  }} else {{
+    b.setAttribute('data-theme', 'dark');
+    btn.textContent = 'Light';
+    localStorage.setItem('theme', 'dark');
+  }}
+}}
+(function() {{
+  if (localStorage.getItem('theme') === 'dark') {{
+    document.body.setAttribute('data-theme', 'dark');
+    document.getElementById('theme-btn').textContent = 'Light';
+  }}
+}})();
+</script>
 </body>
 </html>
 """
