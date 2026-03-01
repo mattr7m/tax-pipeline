@@ -554,7 +554,18 @@ def main(
         json.dump(results, f, indent=2)
     
     console.print(f"[green]Instructions written to {output_path}[/green]\n")
-    
+
+    # Update dashboard — mark processing as complete
+    try:
+        from dashboard import load_state as _load_state, save_state as _save_state, regenerate_html
+        project_root = Path(__file__).parent.parent
+        _state = _load_state(project_root)
+        _state.setdefault("status", {})["processing_complete"] = True
+        _save_state(project_root, _state)
+        regenerate_html(project_root)
+    except Exception:
+        pass  # Dashboard update is non-critical
+
     # Display summary
     display_results(results)
 

@@ -338,7 +338,17 @@ def process_directory(
         json.dump(extracted_data, f, indent=2)
     
     console.print(f"[green]Extracted data written to {output_file}[/green]")
-    
+
+    # Update dashboard
+    try:
+        from dashboard import update_phase, regenerate_html
+        project_root = Path(__file__).parent.parent
+        category = "prior_filed" if document_role == "filed_return" else "current_sources"
+        update_phase(project_root, "extracted_input", category, [output_file])
+        regenerate_html(project_root)
+    except Exception:
+        pass  # Dashboard update is non-critical
+
     return extracted_data
 
 
@@ -512,6 +522,16 @@ def main(input_path: str, output_path: str, prior_year_path: Optional[str], extr
             json.dump(output_data, f, indent=2)
         
         console.print(f"[green]Extracted data written to {output_path}[/green]")
+
+        # Update dashboard
+        try:
+            from dashboard import update_phase, regenerate_html
+            project_root = Path(__file__).parent.parent
+            category = "prior_filed" if document_role == "filed_return" else "current_sources"
+            update_phase(project_root, "extracted_input", category, [output_path])
+            regenerate_html(project_root)
+        except Exception:
+            pass  # Dashboard update is non-critical
 
 
 if __name__ == "__main__":

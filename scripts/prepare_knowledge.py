@@ -457,7 +457,22 @@ def main(
     
     console.print(f"[green]✓ Saved to {output_path}[/green]")
     console.print(f"[dim]  Total size: {len(final_doc):,} characters (~{len(final_doc)//4:,} tokens)[/dim]")
-    
+
+    # Update dashboard
+    try:
+        from dashboard import update_phase, regenerate_html as _regen_html
+        project_root = Path(__file__).parent.parent
+        knowledge_dir_name = Path(output_path).parent.name  # e.g. "2025"
+        try:
+            knowledge_year = int(knowledge_dir_name)
+        except ValueError:
+            knowledge_year = tax_year
+        category = "current_knowledge" if knowledge_year == tax_year else "prior_knowledge"
+        update_phase(project_root, "extracted_input", category, [output_path])
+        _regen_html(project_root)
+    except Exception:
+        pass  # Dashboard update is non-critical
+
     # Summary
     console.print(f"\n[bold green]Done![/bold green]")
     console.print(f"\nTo use these instructions, the tax_knowledge.py loader will")

@@ -408,6 +408,15 @@ def main(
     
     console.print("\n[bold yellow]⚠️  Please review all forms before filing![/bold yellow]")
 
+    # Update dashboard
+    try:
+        from dashboard import update_phase, regenerate_html
+        project_root = Path(__file__).parent.parent
+        update_phase(project_root, "output", "current_filed", generated)
+        regenerate_html(project_root)
+    except Exception:
+        pass  # Dashboard update is non-critical
+
 
 if __name__ == "__main__":
     main()
