@@ -10,9 +10,11 @@ Usage:
 """
 
 import functools
+import mimetypes
 import os
 import socket
 import sys
+import urllib.parse
 from http import HTTPStatus
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -46,10 +48,11 @@ RELOAD_SCRIPT = """
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
-    """Serves only the dashboard HTML and an mtime endpoint."""
+    """Serves the dashboard HTML, mtime endpoint, and linked project files."""
 
-    def __init__(self, *args, dashboard_path, inject_reload=True, **kwargs):
+    def __init__(self, *args, dashboard_path, project_root, inject_reload=True, **kwargs):
         self.dashboard_path = dashboard_path
+        self.project_root = project_root
         self.inject_reload = inject_reload
         super().__init__(*args, **kwargs)
 
@@ -59,7 +62,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif self.path == "/mtime":
             self._serve_mtime()
         else:
-            self.send_error(HTTPStatus.NOT_FOUND)
+            self._serve_file()
 
     def _serve_dashboard(self):
         if not self.dashboard_path.exists():
@@ -94,6 +97,44 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/plain")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_file(self):
+        """Serve a project file referenced by the dashboard."""
+        # Decode percent-encoded URL and strip query/fragment
+        raw_path = urllib.parse.unquote(self.path.split("?")[0].split("#")[0])
+        # Remove leading slash to get relative path
+        rel = raw_path.lstrip("/")
+        file_path = (self.project_root / rel).resolve()
+
+        # Guard against path traversal
+        if not str(file_path).startswith(str(self.project_root.resolve())):
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return
+
+        if not file_path.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+
+        # Don't serve vault/age files over the network
+        if file_path.suffix == ".age":
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return
+
+        content_type, _ = mimetypes.guess_type(str(file_path))
+        if content_type is None:
+            content_type = "application/octet-stream"
+
+        try:
+            body = file_path.read_bytes()
+        except OSError:
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
@@ -134,6 +175,7 @@ def main(host, port, no_reload):
     handler = functools.partial(
         DashboardHandler,
         dashboard_path=dashboard_path,
+        project_root=PROJECT_ROOT,
         inject_reload=not no_reload,
     )
 
