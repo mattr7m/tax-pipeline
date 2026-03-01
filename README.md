@@ -227,19 +227,38 @@ python scripts/assemble.py --instructions data/instructions/2025.json \
 ## Tax Knowledge Base
 
 When using `--backend local`, the system automatically loads current-year
-tax knowledge to provide accurate information to the LLM:
+tax knowledge to provide accurate information to the LLM. This is **critical**
+for local LLMs since they may not have current tax information in their
+training data.
+
+The knowledge base is **not checked into the repo** — generate it locally
+using `prepare_knowledge.py`, which extracts structured data from IRS
+instruction PDFs:
+
+```bash
+# Generate Form 1040 knowledge from IRS instructions PDF
+python scripts/prepare_knowledge.py --pdf ~/Downloads/i1040gi.pdf --form 1040 --year 2025 --backend claude
+
+# Generate Schedule A knowledge
+python scripts/prepare_knowledge.py --pdf ~/Downloads/i1040sca.pdf --form schedule-a --year 2025 --backend claude
+
+# Use local LLM instead of Claude API
+python scripts/prepare_knowledge.py --pdf ~/Downloads/i1040gi.pdf --form 1040 --year 2025 --backend local
+```
+
+This produces the following structure:
 
 ```
 tax-knowledge/
 └── 2025/
-    ├── tax-tables.json         # Brackets, deductions, limits
-    ├── form-1040-fields.json   # PDF field → line mappings
-    ├── schedule-a-fields.json  # Schedule A mappings
-    └── tax-rules-summary.md    # Key rules reference
+    ├── tax-tables.json             # Brackets, deductions, limits
+    ├── form-1040-fields.json       # PDF field → line mappings
+    ├── form-1040-instructions.md   # Line-by-line IRS guidance
+    ├── schedule-a-fields.json      # Schedule A mappings
+    └── tax-rules-summary.md        # Key rules reference
 ```
 
-This is **critical** for local LLMs since they may not have current tax
-information in their training data. The knowledge base includes:
+The knowledge base includes:
 
 - Tax brackets and rates
 - Standard deduction amounts
@@ -251,11 +270,12 @@ information in their training data. The knowledge base includes:
 ### Adding a New Tax Year
 
 ```bash
-# Copy previous year as starting point
-cp -r tax-knowledge/2025 tax-knowledge/2026
+# Option 1: Generate fresh from IRS instruction PDFs (recommended)
+python scripts/prepare_knowledge.py --pdf ~/Downloads/i1040gi-2026.pdf --form 1040 --year 2026 --backend claude
 
-# Update values based on IRS announcements
-# (Revenue Procedure published in Oct/Nov each year)
+# Option 2: Copy previous year and update values manually
+cp -r tax-knowledge/2025 tax-knowledge/2026
+# Update values based on IRS Revenue Procedure announcements (Oct/Nov each year)
 ```
 
 ## License

@@ -49,11 +49,10 @@ data/tmp/
 !templates/**
 
 # -----------------------------------------------------------------------------
-# TAX KNOWLEDGE BASE - SAFE TO COMMIT
+# TAX KNOWLEDGE BASE - GENERATED
 # -----------------------------------------------------------------------------
-# Tax tables, field mappings, instructions (no personal data)
-!tax-knowledge/
-!tax-knowledge/**
+# Reproducible via: python scripts/prepare_knowledge.py
+tax-knowledge/
 
 # -----------------------------------------------------------------------------
 # PYTHON

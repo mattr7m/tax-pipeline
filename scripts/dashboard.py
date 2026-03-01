@@ -120,13 +120,24 @@ def highlight_json(content: str) -> str:
 
 
 def render_md_preview(content: str) -> str:
-    """Render markdown content as preformatted HTML text."""
-    escaped = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return escaped
+    """Render markdown content as HTML using markdown-it-py."""
+    try:
+        from markdown_it import MarkdownIt
+        md = MarkdownIt().enable("table")
+        return md.render(content)
+    except ImportError:
+        # Fallback: escape and return as plain text
+        return "<pre>" + content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</pre>"
 
 
-def _read_preview(project_root: Path, rel_path: str, max_bytes: int = 100_000) -> Optional[str]:
-    """Read file contents for inline preview. Returns None if file doesn't exist or is binary."""
+def _read_preview(
+    project_root: Path, rel_path: str, max_bytes: int = 100_000
+) -> Optional[tuple[str, bool]]:
+    """Read file contents for inline preview.
+
+    Returns (html_string, is_rendered) or None.
+    is_rendered is True for markdown (rendered HTML), False for JSON (pre/code).
+    """
     full_path = project_root / rel_path
     if not full_path.exists():
         return None
@@ -151,11 +162,14 @@ def _read_preview(project_root: Path, rel_path: str, max_bytes: int = 100_000) -
         except Exception:
             pass
         highlighted = highlight_json(raw)
+        if truncated:
+            highlighted += '\n<span class="truncated">(truncated)</span>'
+        return highlighted, False
     else:
-        highlighted = render_md_preview(raw)
-    if truncated:
-        highlighted += '\n<span class="truncated">(truncated)</span>'
-    return highlighted
+        rendered = render_md_preview(raw)
+        if truncated:
+            rendered += '<p class="truncated">(truncated)</p>'
+        return rendered, True
 
 
 def _file_exists(project_root: Path, rel_path: str) -> bool:
@@ -181,15 +195,78 @@ def _render_file_list(
         lines.append(f'  <li class="{css_class}">{link}')
         # Add collapsible preview for existing .json / .md files
         if css_class == "found" and path:
-            preview_html = _read_preview(project_root, path)
-            if preview_html is not None:
-                lines.append(
-                    f'    <details><summary>preview</summary>'
-                    f'<pre><code>{preview_html}</code></pre></details>'
-                )
+            result = _read_preview(project_root, path)
+            if result is not None:
+                preview_html, is_rendered = result
+                if is_rendered:
+                    lines.append(
+                        f'    <details><summary>preview</summary>'
+                        f'<div class="md-preview">{preview_html}</div></details>'
+                    )
+                else:
+                    lines.append(
+                        f'    <details><summary>preview</summary>'
+                        f'<pre><code>{preview_html}</code></pre></details>'
+                    )
         lines.append("  </li>")
     lines.append("</ul>")
     return "\n".join(lines)
+
+
+def _phase_instructions(year, prior) -> dict:
+    """Return a dict mapping step numbers (1-4) to HTML instruction strings."""
+    return {
+        1: (
+            '<div class="how-to-body">'
+            f"<p>Place source PDFs in <code>data/raw/{year}/sources/</code> and "
+            f"prior year filed returns in <code>data/raw/{prior}/filed/</code>.</p>"
+            "<p>Generate tax knowledge from IRS instruction PDFs:</p>"
+            f"<pre>python scripts/prepare_knowledge.py \\\n"
+            f"  --pdf ~/Downloads/i1040gi.pdf --form 1040 \\\n"
+            f"  --year {year} --backend claude</pre>"
+            "<p>Then scan the inventory:</p>"
+            f"<pre>python scripts/inventory.py --year {year}</pre>"
+            "</div>"
+        ),
+        2: (
+            '<div class="how-to-body">'
+            "<p>Extract structured data from PDFs:</p>"
+            f"<pre>python scripts/extract.py \\\n"
+            f"  --input data/raw/{year} \\\n"
+            f"  --output data/extracted/{year}.json \\\n"
+            f"  --extraction-backend ollama</pre>"
+            f"<p>Extract prior year filed return:</p>"
+            f"<pre>python scripts/extract.py \\\n"
+            f"  --input data/raw/{prior}/filed \\\n"
+            f"  --output data/extracted/{prior}-filed.json \\\n"
+            f"  --extraction-backend ollama</pre>"
+            "</div>"
+        ),
+        3: (
+            '<div class="how-to-body">'
+            "<p>Sanitize extracted data (removes SSNs, account numbers):</p>"
+            f"<pre>python scripts/sanitize.py \\\n"
+            f"  --input data/extracted/{year}.json \\\n"
+            f"  --output data/sanitized/{year}.json \\\n"
+            f"  --vault data/vault/{year}.age</pre>"
+            "</div>"
+        ),
+        4: (
+            '<div class="how-to-body">'
+            "<p>Process with LLM for tax logic and form mapping:</p>"
+            f"<pre>python scripts/process.py \\\n"
+            f"  --input data/sanitized/{year}.json \\\n"
+            f"  --output data/instructions/{year}.json \\\n"
+            f"  --backend claude</pre>"
+            "<p>Assemble final filled forms:</p>"
+            f"<pre>python scripts/assemble.py \\\n"
+            f"  --instructions data/instructions/{year}.json \\\n"
+            f"  --vault data/vault/{year}.age \\\n"
+            f"  --templates templates/blank-forms \\\n"
+            f"  --output data/output/{year}</pre>"
+            "</div>"
+        ),
+    }
 
 
 def _render_phase_card(
@@ -198,6 +275,7 @@ def _render_phase_card(
     phase_dict: dict,
     sections: list,
     step_number: int,
+    instructions_html: str = "",
 ) -> str:
     """
     Render a single pipeline phase as a vertical card.
@@ -207,6 +285,7 @@ def _render_phase_card(
         phase_dict: State dict for this phase
         sections: List of (label, category_key) tuples to render
         step_number: 1-based step index for the step indicator
+        instructions_html: Optional collapsible instructions block
     """
     items = []
     for label, key in sections:
@@ -217,97 +296,73 @@ def _render_phase_card(
                      f'        {file_list}\n'
                      f'      </div>')
 
+    howto = ""
+    if instructions_html:
+        howto = (f'    <details class="phase-how-to">\n'
+                 f'      <summary>How to run</summary>\n'
+                 f'      {instructions_html}\n'
+                 f'    </details>\n')
+
     inner = "\n".join(items)
     return (f'  <section class="phase-card">\n'
             f'    <h2><span class="step">{step_number}</span>{title}</h2>\n'
+            f'{howto}'
             f'    <div class="categories">\n{inner}\n'
             f'    </div>\n'
             f'  </section>')
 
 
 def _render_table(project_root: Path, state: dict) -> str:
-    """Render the desktop table layout."""
+    """Render the desktop 2x2 grid layout with flow arrows."""
     year = state.get("year", "?")
     prior = state.get("prior_year", "?")
     raw = state.get("raw_input", {})
     ext = state.get("extracted_input", {})
     san = state.get("sanitized_input", {})
     out = state.get("output", {})
+    instr = _phase_instructions(year, prior)
 
-    def cell(phase_dict, key):
-        return _render_file_list(project_root, phase_dict.get(key, []))
+    raw_card = _render_phase_card(project_root, "Raw Input", raw, [
+        (f"Prior Year Sources ({prior})", "prior_sources"),
+        (f"Current Year Sources ({year})", "current_sources"),
+        (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
+        (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
+        (f"Prior Year Filed ({prior})", "prior_filed"),
+    ], step_number=1, instructions_html=instr[1])
 
-    return f"""<table>
-  <thead>
-    <tr>
-      <th colspan="2">Raw Input</th>
-      <th colspan="2">Extracted Input</th>
-      <th colspan="2">Sanitized Input</th>
-      <th colspan="2">Output</th>
-    </tr>
-  </thead>
-  <tbody>
-    <!-- Sources row group -->
-    <tr class="sub-header">
-      <td>Prior Year Sources</td>
-      <td>Current Year Sources</td>
-      <td>Prior Year Sources</td>
-      <td>Current Year Sources</td>
-      <td>Prior Year Sources</td>
-      <td>Current Year Sources</td>
-      <td>Current Year Filed</td>
-      <td>Current Year Assembled</td>
-    </tr>
-    <tr>
-      <td>{cell(raw, "prior_sources")}</td>
-      <td>{cell(raw, "current_sources")}</td>
-      <td>{cell(ext, "prior_sources")}</td>
-      <td>{cell(ext, "current_sources")}</td>
-      <td>{cell(san, "prior_sources")}</td>
-      <td>{cell(san, "current_sources")}</td>
-      <td>{cell(out, "current_filed")}</td>
-      <td>{cell(out, "current_assembled")}</td>
-    </tr>
+    ext_card = _render_phase_card(project_root, "Extracted Input", ext, [
+        (f"Prior Year Sources ({prior})", "prior_sources"),
+        (f"Current Year Sources ({year})", "current_sources"),
+        (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
+        (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
+        (f"Prior Year Filed ({prior})", "prior_filed"),
+    ], step_number=2, instructions_html=instr[2])
 
-    <!-- Tax Knowledge row group -->
-    <tr class="sub-header">
-      <td>Prior Year Tax Knowledge</td>
-      <td>Current Year Tax Knowledge</td>
-      <td>Prior Year Tax Knowledge</td>
-      <td>Current Year Tax Knowledge</td>
-      <td colspan="2" style="color:#999; text-align:center; font-style:italic;">(tax knowledge not sanitized)</td>
-      <td colspan="2"></td>
-    </tr>
-    <tr>
-      <td>{cell(raw, "prior_knowledge")}</td>
-      <td>{cell(raw, "current_knowledge")}</td>
-      <td>{cell(ext, "prior_knowledge")}</td>
-      <td>{cell(ext, "current_knowledge")}</td>
-      <td colspan="2"></td>
-      <td colspan="2"></td>
-    </tr>
+    san_card = _render_phase_card(project_root, "Sanitized Input", san, [
+        (f"Prior Year Sources ({prior})", "prior_sources"),
+        (f"Current Year Sources ({year})", "current_sources"),
+        (f"Prior Year Filed ({prior})", "prior_filed"),
+    ], step_number=3, instructions_html=instr[3])
 
-    <!-- Filed / Assembled row group -->
-    <tr class="sub-header">
-      <td>Prior Year Filed</td>
-      <td></td>
-      <td>Prior Year Filed</td>
-      <td></td>
-      <td>Prior Year Filed</td>
-      <td></td>
-      <td colspan="2"></td>
-    </tr>
-    <tr>
-      <td>{cell(raw, "prior_filed")}</td>
-      <td></td>
-      <td>{cell(ext, "prior_filed")}</td>
-      <td></td>
-      <td>{cell(san, "prior_filed")}</td>
-      <td></td>
-      <td colspan="2"></td>
-    </tr>
-  </tbody>
-</table>"""
+    out_card = _render_phase_card(project_root, "Output", out, [
+        (f"Current Year Instructions ({year})", "current_instructions"),
+        (f"Current Year Filed ({year})", "current_filed"),
+        (f"Current Year Assembled ({year})", "current_assembled"),
+    ], step_number=4, instructions_html=instr[4])
+
+    return f"""<div class="desktop-grid">
+  <div class="grid-cell">{raw_card}</div>
+  <div class="arrow arrow-right">&rarr;</div>
+  <div class="grid-cell">{ext_card}</div>
+
+  <div class="arrow-spacer"></div>
+  <div class="arrow arrow-down">&darr;</div>
+  <div class="arrow-spacer"></div>
+
+  <div class="grid-cell">{san_card}</div>
+  <div class="arrow arrow-right">&rarr;</div>
+  <div class="grid-cell">{out_card}</div>
+</div>"""
 
 
 def _render_cards(project_root: Path, state: dict) -> str:
@@ -318,6 +373,7 @@ def _render_cards(project_root: Path, state: dict) -> str:
     ext = state.get("extracted_input", {})
     san = state.get("sanitized_input", {})
     out = state.get("output", {})
+    instr = _phase_instructions(year, prior)
 
     cards = []
     cards.append(_render_phase_card(project_root, "Raw Input", raw, [
@@ -326,7 +382,7 @@ def _render_cards(project_root: Path, state: dict) -> str:
         (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
         (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=1))
+    ], step_number=1, instructions_html=instr[1]))
 
     cards.append(_render_phase_card(project_root, "Extracted Input", ext, [
         (f"Prior Year Sources ({prior})", "prior_sources"),
@@ -334,18 +390,19 @@ def _render_cards(project_root: Path, state: dict) -> str:
         (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
         (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=2))
+    ], step_number=2, instructions_html=instr[2]))
 
     cards.append(_render_phase_card(project_root, "Sanitized Input", san, [
         (f"Prior Year Sources ({prior})", "prior_sources"),
         (f"Current Year Sources ({year})", "current_sources"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=3))
+    ], step_number=3, instructions_html=instr[3]))
 
     cards.append(_render_phase_card(project_root, "Output", out, [
+        (f"Current Year Instructions ({year})", "current_instructions"),
         (f"Current Year Filed ({year})", "current_filed"),
         (f"Current Year Assembled ({year})", "current_assembled"),
-    ], step_number=4))
+    ], step_number=4, instructions_html=instr[4]))
 
     return "\n\n".join(cards)
 
@@ -403,27 +460,98 @@ def regenerate_html(project_root: Path) -> Path:
   .json-bool {{ color: #7b1fa2; }}
   .truncated {{ color: #999; font-style: italic; }}
 
+  /* Rendered markdown previews */
+  .md-preview {{ max-height: 400px; overflow-y: auto; font-size: 12px; background: #f8f8f8; border: 1px solid #ddd; padding: 8px 12px; margin-top: 2px; line-height: 1.5; }}
+  .md-preview h1, .md-preview h2, .md-preview h3 {{ color: #555; font-weight: 600; }}
+  .md-preview h1 {{ font-size: 14px; margin: 10px 0 4px; border-bottom: 1px solid #eee; padding-bottom: 3px; }}
+  .md-preview h2 {{ font-size: 13px; margin: 8px 0 4px; }}
+  .md-preview h3 {{ font-size: 12px; margin: 6px 0 3px; }}
+  .md-preview p {{ margin: 4px 0; }}
+  .md-preview ul, .md-preview ol {{ padding-left: 20px; margin: 4px 0; }}
+  .md-preview code {{ background: #e8e8e8; padding: 1px 4px; border-radius: 3px; font-size: 11px; }}
+  .md-preview pre {{ background: #e8e8e8; padding: 6px; border-radius: 4px; overflow-x: auto; font-size: 11px; margin: 4px 0; }}
+  .md-preview pre code {{ background: none; padding: 0; }}
+  .md-preview table {{ border-collapse: collapse; margin: 4px 0; font-size: 11px; }}
+  .md-preview th, .md-preview td {{ border: 1px solid #ddd; padding: 3px 8px; }}
+  .md-preview th {{ background: #eee; }}
+
   /* Shared: badge */
   .badge {{ display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; margin: 8px 0; }}
   .badge-complete {{ background: #c8e6c9; color: #2e7d32; }}
 
-  /* Desktop: table layout */
+  /* Desktop: 2x2 grid layout with flow arrows */
   .desktop-view {{ display: block; }}
-  table {{ border-collapse: collapse; width: 100%; table-layout: fixed; }}
-  th {{ background: #1a237e; color: #fff; padding: 8px 6px; font-size: 13px; text-align: center; border: 1px solid #0d1553; }}
-  td {{ vertical-align: top; padding: 4px 8px; border: 1px solid #ccc; font-size: 13px; }}
-  .sub-header td {{ background: #e8eaf6; font-weight: bold; font-size: 12px; text-align: center; padding: 4px; }}
+  .desktop-grid {{
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    grid-template-rows: auto auto auto;
+    gap: 0;
+    align-items: stretch;
+  }}
+  .grid-cell {{ min-width: 0; display: flex; }}
+  .desktop-grid .phase-card {{ margin-bottom: 0; flex: 1; }}
+  .arrow {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: bold;
+    color: #1a237e;
+  }}
+  .arrow-right {{ padding: 0 12px; }}
+  .arrow-down {{ padding: 8px 0; transform: rotate(45deg); }}
+  .arrow-spacer {{ }}
 
   /* Mobile: card layout (hidden by default) */
   .mobile-view {{ display: none; max-width: 600px; margin: 0 auto; }}
   .phase-card {{ background: #fff; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }}
-  .phase-card h2 {{ background: #1a237e; color: #fff; padding: 10px 14px; font-size: 15px; display: flex; align-items: center; gap: 10px; }}
-  .phase-card h2 .step {{ display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.2); font-size: 13px; flex-shrink: 0; }}
+  .phase-card > h2 {{ background: #1a237e; color: #fff; padding: 10px 14px; font-size: 15px; display: flex; align-items: center; gap: 10px; }}
+  .phase-card > h2 .step {{ display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.2); font-size: 13px; flex-shrink: 0; }}
   .categories {{ padding: 8px 0; }}
   .category {{ padding: 6px 14px; }}
   .category + .category {{ border-top: 1px solid #eee; }}
   .category h3 {{ font-size: 12px; color: #555; margin-bottom: 4px; font-weight: 600; }}
+  .phase-how-to {{ border-bottom: 1px solid #eee; }}
+  .phase-how-to summary {{ padding: 6px 14px; font-size: 12px; color: #666; cursor: pointer; }}
+  .phase-how-to .how-to-body {{ padding: 4px 14px 10px; font-size: 12px; line-height: 1.5; }}
+  .phase-how-to pre {{ background: #f5f5f5; padding: 8px; border-radius: 4px; overflow-x: auto; font-size: 11px; margin: 4px 0; }}
   .mobile-view ul.file-list li {{ font-size: 14px; padding: 3px 0; }}
+
+  /* Dark mode toggle */
+  .header {{ display: flex; align-items: baseline; justify-content: space-between; }}
+  .theme-toggle {{ background: none; border: 1px solid #ccc; border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer; color: inherit; }}
+  .theme-toggle:hover {{ background: #eee; }}
+
+  /* Dark mode overrides */
+  [data-theme="dark"] {{ background: #1a1a2e; color: #ddd; }}
+  [data-theme="dark"] .meta {{ color: #999; }}
+  [data-theme="dark"] .theme-toggle {{ border-color: #555; }}
+  [data-theme="dark"] .theme-toggle:hover {{ background: #2a2a3e; }}
+  [data-theme="dark"] .phase-card {{ background: #16213e; border-color: #2a2a4a; }}
+  [data-theme="dark"] .phase-card > h2 {{ background: #0f3460; }}
+  [data-theme="dark"] .category + .category {{ border-color: #2a2a4a; }}
+  [data-theme="dark"] .category h3 {{ color: #aaa; }}
+  [data-theme="dark"] ul.file-list li.empty {{ color: #555; }}
+  [data-theme="dark"] .found a {{ color: #66bb6a; }}
+  [data-theme="dark"] .missing a {{ color: #666; }}
+  [data-theme="dark"] .arrow {{ color: #5c6bc0; }}
+  [data-theme="dark"] details summary {{ color: #888; }}
+  [data-theme="dark"] details pre {{ background: #0d1117; border-color: #2a2a4a; color: #ccc; }}
+  [data-theme="dark"] .json-key {{ color: #79b8ff; }}
+  [data-theme="dark"] .json-str {{ color: #85e89d; }}
+  [data-theme="dark"] .json-num {{ color: #ffab70; }}
+  [data-theme="dark"] .json-bool {{ color: #b392f0; }}
+  [data-theme="dark"] .md-preview {{ background: #0d1117; border-color: #2a2a4a; color: #ccc; }}
+  [data-theme="dark"] .md-preview h1, [data-theme="dark"] .md-preview h2, [data-theme="dark"] .md-preview h3 {{ color: #aaa; }}
+  [data-theme="dark"] .md-preview h1 {{ border-color: #2a2a4a; }}
+  [data-theme="dark"] .md-preview code {{ background: #2a2a3e; }}
+  [data-theme="dark"] .md-preview pre {{ background: #2a2a3e; }}
+  [data-theme="dark"] .md-preview th {{ background: #1a1a2e; }}
+  [data-theme="dark"] .md-preview th, [data-theme="dark"] .md-preview td {{ border-color: #2a2a4a; }}
+  [data-theme="dark"] .badge-complete {{ background: #1b5e20; color: #a5d6a7; }}
+  [data-theme="dark"] .phase-how-to {{ border-color: #2a2a4a; }}
+  [data-theme="dark"] .phase-how-to summary {{ color: #888; }}
+  [data-theme="dark"] .phase-how-to pre {{ background: #0d1117; }}
 
   @media (max-width: 900px) {{
     .desktop-view {{ display: none; }}
@@ -433,8 +561,13 @@ def regenerate_html(project_root: Path) -> Path:
 </head>
 <body>
 
-<h1>Tax Pipeline Dashboard</h1>
-<p class="meta">Year: {year} | Prior year: {prior} | Updated: {updated}</p>
+<div class="header">
+  <div>
+    <h1>Tax Pipeline Dashboard</h1>
+    <p class="meta">Year: {year} | Prior year: {prior} | Updated: {updated}</p>
+  </div>
+  <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">Dark</button>
+</div>
 {processing_badge}
 
 <div class="desktop-view">
@@ -445,6 +578,26 @@ def regenerate_html(project_root: Path) -> Path:
 {cards_html}
 </div>
 
+<script>
+function toggleTheme() {{
+  var b = document.body, btn = document.getElementById('theme-btn');
+  if (b.getAttribute('data-theme') === 'dark') {{
+    b.removeAttribute('data-theme');
+    btn.textContent = 'Dark';
+    localStorage.setItem('theme', 'light');
+  }} else {{
+    b.setAttribute('data-theme', 'dark');
+    btn.textContent = 'Light';
+    localStorage.setItem('theme', 'dark');
+  }}
+}}
+(function() {{
+  if (localStorage.getItem('theme') === 'dark') {{
+    document.body.setAttribute('data-theme', 'dark');
+    document.getElementById('theme-btn').textContent = 'Light';
+  }}
+}})();
+</script>
 </body>
 </html>
 """

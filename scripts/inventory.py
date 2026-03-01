@@ -204,6 +204,13 @@ def main(year: int):
         if (project_root / entry["path"]).exists():
             entry.pop("placeholder", None)
 
+    output_instructions = [
+        {"name": f"{year}.json", "path": f"data/instructions/{year}.json", "placeholder": True}
+    ]
+    for entry in output_instructions:
+        if (project_root / entry["path"]).exists():
+            entry.pop("placeholder", None)
+
     output_assembled = [
         {"name": f"{year}-filed.pdf", "path": f"data/output/{year}/{year}-filed.pdf", "placeholder": True}
     ]
@@ -238,6 +245,7 @@ def main(year: int):
         "prior_filed": san_prior_filed,
     }
     state["output"] = {
+        "current_instructions": output_instructions,
         "current_filed": output_filed,
         "current_assembled": output_assembled,
     }
