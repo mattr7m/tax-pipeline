@@ -20,6 +20,8 @@ from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 import yaml
 
+from pathguard import safe_resolve
+
 console = Console()
 
 
@@ -199,7 +201,11 @@ def main(
         "output": project_root / config["paths"]["output"] / str(year),
         "templates": project_root / config["paths"]["blank_forms"],
     }
-    
+
+    # Validate all paths stay within project root
+    for key, p in paths.items():
+        safe_resolve(project_root, p)
+
     # Verify current year sources exist
     if not paths["current_sources"].exists():
         console.print(f"[red]Sources directory not found: {paths['current_sources']}[/red]")

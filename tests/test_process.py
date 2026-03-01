@@ -1,6 +1,7 @@
 """Tests for process.py — sanitization verification, prompt building, JSON parsing."""
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -330,11 +331,12 @@ class TestProcessMain:
         ])
         assert result.exit_code != 0
 
+    @patch("process.safe_resolve", side_effect=lambda root, p: Path(p).resolve())
     @patch("process.process_with_claude")
     @patch("process.load_knowledge_for_processing", return_value=("", ["1040"]))
     @patch("process.load_config")
     def test_claude_backend_dispatches(
-        self, mock_config, mock_knowledge, mock_claude,
+        self, mock_config, mock_knowledge, mock_claude, mock_safe,
         tmp_path, test_config, sanitized_data, instructions_data
     ):
         mock_config.return_value = test_config
@@ -352,11 +354,12 @@ class TestProcessMain:
         assert result.exit_code == 0
         assert mock_claude.called
 
+    @patch("process.safe_resolve", side_effect=lambda root, p: Path(p).resolve())
     @patch("process.process_with_local_llm")
     @patch("process.load_knowledge_for_processing", return_value=("", ["1040"]))
     @patch("process.load_config")
     def test_local_backend_dispatches(
-        self, mock_config, mock_knowledge, mock_local,
+        self, mock_config, mock_knowledge, mock_local, mock_safe,
         tmp_path, test_config, sanitized_data, instructions_data
     ):
         mock_config.return_value = test_config

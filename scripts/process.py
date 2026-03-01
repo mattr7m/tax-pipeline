@@ -26,6 +26,7 @@ import yaml
 import requests
 
 # Local imports
+from pathguard import safe_resolve
 from tax_knowledge import TaxKnowledgeBase, load_knowledge_for_processing
 
 console = Console()
@@ -451,8 +452,9 @@ def main(
     console.print("Processing sanitized data - no sensitive info transmitted\n")
     
     config = load_config()
-    input_path = Path(input_path)
-    output_path = Path(output_path)
+    project_root = Path(__file__).parent.parent
+    input_path = safe_resolve(project_root, input_path)
+    output_path = safe_resolve(project_root, output_path)
     
     # Load sanitized source documents
     with open(input_path) as f:
@@ -466,6 +468,7 @@ def main(
     # Load prior year filed return if provided
     prior_filed_context = None
     if prior_filed_path:
+        prior_filed_path = safe_resolve(project_root, prior_filed_path)
         with open(prior_filed_path) as f:
             prior_filed_context = json.load(f)
         prior_role = prior_filed_context.get("document_role", "unknown")
@@ -475,6 +478,7 @@ def main(
     # Load prior year source documents if provided
     prior_sources_context = None
     if prior_sources_path:
+        prior_sources_path = safe_resolve(project_root, prior_sources_path)
         with open(prior_sources_path) as f:
             prior_sources_context = json.load(f)
         prior_src_role = prior_sources_context.get("document_role", "unknown")

@@ -302,12 +302,13 @@ class TestAssembleMain:
         ])
         assert result.exit_code != 0
 
+    @patch("assemble.safe_resolve", side_effect=lambda root, p: Path(p).resolve())
     @patch("assemble.generate_review_document")
     @patch("assemble.assemble_forms", return_value=[Path("1040.pdf")])
     @patch("assemble.decrypt_vault")
     @patch("assemble.load_config")
     def test_full_assembly_success(
-        self, mock_config, mock_decrypt, mock_assemble, mock_review,
+        self, mock_config, mock_decrypt, mock_assemble, mock_review, mock_safe,
         tmp_path, test_config, instructions_data, vault_data
     ):
         mock_config.return_value = test_config

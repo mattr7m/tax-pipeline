@@ -15,6 +15,7 @@ from pathlib import Path
 import click
 
 from dashboard import load_state, save_state, regenerate_html
+from pathguard import safe_resolve
 
 
 def scan_dir(directory: Path, extensions: tuple = ()) -> list[dict]:
@@ -82,6 +83,11 @@ def main(year: int):
 
     click.echo(f"Tax Dashboard Inventory — {year} (prior: {prior})")
     click.echo(f"Project root: {project_root}\n")
+
+    # Validate base directories stay within project root
+    safe_resolve(project_root, f"data/raw/{year}")
+    safe_resolve(project_root, f"data/raw/{prior}")
+    safe_resolve(project_root, f"data/output/{year}")
 
     # -------------------------------------------------------------------
     # 1. Ensure directory structure exists

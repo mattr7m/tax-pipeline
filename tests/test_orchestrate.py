@@ -142,9 +142,10 @@ class TestOrchestrateMain:
         assert result.exit_code != 0
         assert "Sources directory not found" in result.output
 
+    @patch("orchestrate.safe_resolve", side_effect=lambda root, p: Path(p).resolve())
     @patch("orchestrate.load_config")
     @patch("orchestrate.check_prerequisites", return_value=[])
-    def test_missing_passphrase_non_interactive(self, mock_prereqs, mock_config, tmp_path, test_config):
+    def test_missing_passphrase_non_interactive(self, mock_prereqs, mock_config, mock_safe, tmp_path, test_config):
         mock_config.return_value = test_config
         sources = tmp_path / "data" / "raw" / "2025" / "sources"
         sources.mkdir(parents=True)
@@ -159,10 +160,11 @@ class TestOrchestrateMain:
         assert result.exit_code != 0
         assert "VAULT_PASSPHRASE" in result.output
 
+    @patch("orchestrate.safe_resolve", side_effect=lambda root, p: Path(p).resolve())
     @patch("orchestrate.run_step", return_value=True)
     @patch("orchestrate.load_config")
     @patch("orchestrate.check_prerequisites", return_value=[])
-    def test_full_pipeline(self, mock_prereqs, mock_config, mock_run_step, tmp_path, test_config):
+    def test_full_pipeline(self, mock_prereqs, mock_config, mock_run_step, mock_safe, tmp_path, test_config):
         sources = tmp_path / "data" / "raw" / "2025" / "sources"
         sources.mkdir(parents=True)
         (sources / "w2.pdf").write_bytes(b"%PDF")
@@ -185,10 +187,11 @@ class TestOrchestrateMain:
         assert result.exit_code == 0
         assert mock_run_step.call_count >= 3
 
+    @patch("orchestrate.safe_resolve", side_effect=lambda root, p: Path(p).resolve())
     @patch("orchestrate.run_step", return_value=True)
     @patch("orchestrate.load_config")
     @patch("orchestrate.check_prerequisites", return_value=[])
-    def test_skip_flags(self, mock_prereqs, mock_config, mock_run_step, tmp_path, test_config):
+    def test_skip_flags(self, mock_prereqs, mock_config, mock_run_step, mock_safe, tmp_path, test_config):
         sources = tmp_path / "data" / "raw" / "2025" / "sources"
         sources.mkdir(parents=True)
         (sources / "w2.pdf").write_bytes(b"%PDF")

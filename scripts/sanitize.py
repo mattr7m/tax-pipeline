@@ -21,6 +21,8 @@ import yaml
 # Pure Python alternative: pyage
 import subprocess
 
+from pathguard import safe_resolve
+
 console = Console()
 
 
@@ -197,9 +199,10 @@ def main(input_path: str, output_path: str, vault_path: str, passphrase: str):
     console.print("Removing sensitive data before API transmission\n")
     
     config = load_config()
-    input_path = Path(input_path)
-    output_path = Path(output_path)
-    vault_path = Path(vault_path)
+    project_root = Path(__file__).parent.parent
+    input_path = safe_resolve(project_root, input_path)
+    output_path = safe_resolve(project_root, output_path)
+    vault_path = safe_resolve(project_root, vault_path)
     
     # Load extracted data
     with open(input_path) as f:
