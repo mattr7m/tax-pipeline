@@ -24,6 +24,8 @@ import io
 import yaml
 import requests
 
+from pathguard import safe_resolve
+
 console = Console()
 
 
@@ -469,8 +471,9 @@ def main(input_path: str, output_path: str, prior_year_path: Optional[str], extr
     console.print("All processing runs locally - no data leaves your machine\n")
     
     config = load_config()
-    input_path = Path(input_path)
-    output_path = Path(output_path)
+    project_root = Path(__file__).parent.parent
+    input_path = safe_resolve(project_root, input_path)
+    output_path = safe_resolve(project_root, output_path)
     
     # Check backend is available
     if not check_backend_available(extraction_backend, config):
@@ -490,6 +493,7 @@ def main(input_path: str, output_path: str, prior_year_path: Optional[str], extr
     # Load prior year data if provided
     prior_year_data = None
     if prior_year_path:
+        prior_year_path = safe_resolve(project_root, prior_year_path)
         with open(prior_year_path) as f:
             prior_year_data = json.load(f)
         console.print(f"[dim]Loaded prior year context from {prior_year_path}[/dim]")

@@ -17,6 +17,8 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 import yaml
 
+from pathguard import safe_resolve
+
 # PDF manipulation
 try:
     import fitz  # pymupdf
@@ -347,10 +349,11 @@ def main(
     console.print("[bold blue]Tax Form Assembler (Local)[/bold blue]")
     console.print("Re-injecting sensitive data and filling forms\n")
     
-    instructions_path = Path(instructions_path)
-    vault_path = Path(vault_path)
-    templates_dir = Path(templates_dir)
-    output_dir = Path(output_dir)
+    project_root = Path(__file__).parent.parent
+    instructions_path = safe_resolve(project_root, instructions_path)
+    vault_path = safe_resolve(project_root, vault_path)
+    templates_dir = safe_resolve(project_root, templates_dir)
+    output_dir = safe_resolve(project_root, output_dir)
     
     # Load instructions
     with open(instructions_path) as f:
