@@ -192,12 +192,69 @@ def _render_file_list(
     return "\n".join(lines)
 
 
+def _phase_instructions(year, prior) -> dict:
+    """Return a dict mapping step numbers (1-4) to HTML instruction strings."""
+    return {
+        1: (
+            '<div class="how-to-body">'
+            f"<p>Place source PDFs in <code>data/raw/{year}/sources/</code> and "
+            f"prior year filed returns in <code>data/raw/{prior}/filed/</code>.</p>"
+            "<p>Generate tax knowledge from IRS instruction PDFs:</p>"
+            f"<pre>python scripts/prepare_knowledge.py \\\n"
+            f"  --pdf ~/Downloads/i1040gi.pdf --form 1040 \\\n"
+            f"  --year {year} --backend claude</pre>"
+            "<p>Then scan the inventory:</p>"
+            f"<pre>python scripts/inventory.py --year {year}</pre>"
+            "</div>"
+        ),
+        2: (
+            '<div class="how-to-body">'
+            "<p>Extract structured data from PDFs:</p>"
+            f"<pre>python scripts/extract.py \\\n"
+            f"  --input data/raw/{year} \\\n"
+            f"  --output data/extracted/{year}.json \\\n"
+            f"  --extraction-backend ollama</pre>"
+            f"<p>Extract prior year filed return:</p>"
+            f"<pre>python scripts/extract.py \\\n"
+            f"  --input data/raw/{prior}/filed \\\n"
+            f"  --output data/extracted/{prior}-filed.json \\\n"
+            f"  --extraction-backend ollama</pre>"
+            "</div>"
+        ),
+        3: (
+            '<div class="how-to-body">'
+            "<p>Sanitize extracted data (removes SSNs, account numbers):</p>"
+            f"<pre>python scripts/sanitize.py \\\n"
+            f"  --input data/extracted/{year}.json \\\n"
+            f"  --output data/sanitized/{year}.json \\\n"
+            f"  --vault data/vault/{year}.age</pre>"
+            "</div>"
+        ),
+        4: (
+            '<div class="how-to-body">'
+            "<p>Process with LLM for tax logic and form mapping:</p>"
+            f"<pre>python scripts/process.py \\\n"
+            f"  --input data/sanitized/{year}.json \\\n"
+            f"  --output data/instructions/{year}.json \\\n"
+            f"  --backend claude</pre>"
+            "<p>Assemble final filled forms:</p>"
+            f"<pre>python scripts/assemble.py \\\n"
+            f"  --instructions data/instructions/{year}.json \\\n"
+            f"  --vault data/vault/{year}.age \\\n"
+            f"  --templates templates/blank-forms \\\n"
+            f"  --output data/output/{year}</pre>"
+            "</div>"
+        ),
+    }
+
+
 def _render_phase_card(
     project_root: Path,
     title: str,
     phase_dict: dict,
     sections: list,
     step_number: int,
+    instructions_html: str = "",
 ) -> str:
     """
     Render a single pipeline phase as a vertical card.
@@ -207,6 +264,7 @@ def _render_phase_card(
         phase_dict: State dict for this phase
         sections: List of (label, category_key) tuples to render
         step_number: 1-based step index for the step indicator
+        instructions_html: Optional collapsible instructions block
     """
     items = []
     for label, key in sections:
@@ -217,9 +275,17 @@ def _render_phase_card(
                      f'        {file_list}\n'
                      f'      </div>')
 
+    howto = ""
+    if instructions_html:
+        howto = (f'    <details class="phase-how-to">\n'
+                 f'      <summary>How to run</summary>\n'
+                 f'      {instructions_html}\n'
+                 f'    </details>\n')
+
     inner = "\n".join(items)
     return (f'  <section class="phase-card">\n'
             f'    <h2><span class="step">{step_number}</span>{title}</h2>\n'
+            f'{howto}'
             f'    <div class="categories">\n{inner}\n'
             f'    </div>\n'
             f'  </section>')
@@ -233,6 +299,7 @@ def _render_table(project_root: Path, state: dict) -> str:
     ext = state.get("extracted_input", {})
     san = state.get("sanitized_input", {})
     out = state.get("output", {})
+    instr = _phase_instructions(year, prior)
 
     raw_card = _render_phase_card(project_root, "Raw Input", raw, [
         (f"Prior Year Sources ({prior})", "prior_sources"),
@@ -240,7 +307,7 @@ def _render_table(project_root: Path, state: dict) -> str:
         (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
         (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=1)
+    ], step_number=1, instructions_html=instr[1])
 
     ext_card = _render_phase_card(project_root, "Extracted Input", ext, [
         (f"Prior Year Sources ({prior})", "prior_sources"),
@@ -248,19 +315,19 @@ def _render_table(project_root: Path, state: dict) -> str:
         (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
         (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=2)
+    ], step_number=2, instructions_html=instr[2])
 
     san_card = _render_phase_card(project_root, "Sanitized Input", san, [
         (f"Prior Year Sources ({prior})", "prior_sources"),
         (f"Current Year Sources ({year})", "current_sources"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=3)
+    ], step_number=3, instructions_html=instr[3])
 
     out_card = _render_phase_card(project_root, "Output", out, [
         (f"Current Year Instructions ({year})", "current_instructions"),
         (f"Current Year Filed ({year})", "current_filed"),
         (f"Current Year Assembled ({year})", "current_assembled"),
-    ], step_number=4)
+    ], step_number=4, instructions_html=instr[4])
 
     return f"""<div class="desktop-grid">
   <div class="grid-cell">{raw_card}</div>
@@ -285,6 +352,7 @@ def _render_cards(project_root: Path, state: dict) -> str:
     ext = state.get("extracted_input", {})
     san = state.get("sanitized_input", {})
     out = state.get("output", {})
+    instr = _phase_instructions(year, prior)
 
     cards = []
     cards.append(_render_phase_card(project_root, "Raw Input", raw, [
@@ -293,7 +361,7 @@ def _render_cards(project_root: Path, state: dict) -> str:
         (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
         (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=1))
+    ], step_number=1, instructions_html=instr[1]))
 
     cards.append(_render_phase_card(project_root, "Extracted Input", ext, [
         (f"Prior Year Sources ({prior})", "prior_sources"),
@@ -301,19 +369,19 @@ def _render_cards(project_root: Path, state: dict) -> str:
         (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
         (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=2))
+    ], step_number=2, instructions_html=instr[2]))
 
     cards.append(_render_phase_card(project_root, "Sanitized Input", san, [
         (f"Prior Year Sources ({prior})", "prior_sources"),
         (f"Current Year Sources ({year})", "current_sources"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=3))
+    ], step_number=3, instructions_html=instr[3]))
 
     cards.append(_render_phase_card(project_root, "Output", out, [
         (f"Current Year Instructions ({year})", "current_instructions"),
         (f"Current Year Filed ({year})", "current_filed"),
         (f"Current Year Assembled ({year})", "current_assembled"),
-    ], step_number=4))
+    ], step_number=4, instructions_html=instr[4]))
 
     return "\n\n".join(cards)
 
@@ -407,6 +475,10 @@ def regenerate_html(project_root: Path) -> Path:
   .category {{ padding: 6px 14px; }}
   .category + .category {{ border-top: 1px solid #eee; }}
   .category h3 {{ font-size: 12px; color: #555; margin-bottom: 4px; font-weight: 600; }}
+  .phase-how-to {{ border-bottom: 1px solid #eee; }}
+  .phase-how-to summary {{ padding: 6px 14px; font-size: 12px; color: #666; cursor: pointer; }}
+  .phase-how-to .how-to-body {{ padding: 4px 14px 10px; font-size: 12px; line-height: 1.5; }}
+  .phase-how-to pre {{ background: #f5f5f5; padding: 8px; border-radius: 4px; overflow-x: auto; font-size: 11px; margin: 4px 0; }}
   .mobile-view ul.file-list li {{ font-size: 14px; padding: 3px 0; }}
 
   @media (max-width: 900px) {{
