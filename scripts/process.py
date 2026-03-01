@@ -555,12 +555,14 @@ def main(
     
     console.print(f"[green]Instructions written to {output_path}[/green]\n")
 
-    # Update dashboard — mark processing as complete
+    # Update dashboard — mark processing as complete and instructions as present
     try:
         from dashboard import load_state as _load_state, save_state as _save_state, regenerate_html
         project_root = Path(__file__).parent.parent
         _state = _load_state(project_root)
         _state.setdefault("status", {})["processing_complete"] = True
+        for entry in _state.get("output", {}).get("current_instructions", []):
+            entry.pop("placeholder", None)
         _save_state(project_root, _state)
         regenerate_html(project_root)
     except Exception:

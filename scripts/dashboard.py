@@ -226,7 +226,7 @@ def _render_phase_card(
 
 
 def _render_table(project_root: Path, state: dict) -> str:
-    """Render the desktop table layout."""
+    """Render the desktop 2x2 grid layout with flow arrows."""
     year = state.get("year", "?")
     prior = state.get("prior_year", "?")
     raw = state.get("raw_input", {})
@@ -234,80 +234,47 @@ def _render_table(project_root: Path, state: dict) -> str:
     san = state.get("sanitized_input", {})
     out = state.get("output", {})
 
-    def cell(phase_dict, key):
-        return _render_file_list(project_root, phase_dict.get(key, []))
+    raw_card = _render_phase_card(project_root, "Raw Input", raw, [
+        (f"Prior Year Sources ({prior})", "prior_sources"),
+        (f"Current Year Sources ({year})", "current_sources"),
+        (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
+        (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
+        (f"Prior Year Filed ({prior})", "prior_filed"),
+    ], step_number=1)
 
-    return f"""<table>
-  <thead>
-    <tr>
-      <th colspan="2">Raw Input</th>
-      <th colspan="2">Extracted Input</th>
-      <th colspan="2">Sanitized Input</th>
-      <th colspan="2">Output</th>
-    </tr>
-  </thead>
-  <tbody>
-    <!-- Sources row group -->
-    <tr class="sub-header">
-      <td>Prior Year Sources</td>
-      <td>Current Year Sources</td>
-      <td>Prior Year Sources</td>
-      <td>Current Year Sources</td>
-      <td>Prior Year Sources</td>
-      <td>Current Year Sources</td>
-      <td>Current Year Filed</td>
-      <td>Current Year Assembled</td>
-    </tr>
-    <tr>
-      <td>{cell(raw, "prior_sources")}</td>
-      <td>{cell(raw, "current_sources")}</td>
-      <td>{cell(ext, "prior_sources")}</td>
-      <td>{cell(ext, "current_sources")}</td>
-      <td>{cell(san, "prior_sources")}</td>
-      <td>{cell(san, "current_sources")}</td>
-      <td>{cell(out, "current_filed")}</td>
-      <td>{cell(out, "current_assembled")}</td>
-    </tr>
+    ext_card = _render_phase_card(project_root, "Extracted Input", ext, [
+        (f"Prior Year Sources ({prior})", "prior_sources"),
+        (f"Current Year Sources ({year})", "current_sources"),
+        (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
+        (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
+        (f"Prior Year Filed ({prior})", "prior_filed"),
+    ], step_number=2)
 
-    <!-- Tax Knowledge row group -->
-    <tr class="sub-header">
-      <td>Prior Year Tax Knowledge</td>
-      <td>Current Year Tax Knowledge</td>
-      <td>Prior Year Tax Knowledge</td>
-      <td>Current Year Tax Knowledge</td>
-      <td colspan="2" style="color:#999; text-align:center; font-style:italic;">(tax knowledge not sanitized)</td>
-      <td colspan="2"></td>
-    </tr>
-    <tr>
-      <td>{cell(raw, "prior_knowledge")}</td>
-      <td>{cell(raw, "current_knowledge")}</td>
-      <td>{cell(ext, "prior_knowledge")}</td>
-      <td>{cell(ext, "current_knowledge")}</td>
-      <td colspan="2"></td>
-      <td colspan="2"></td>
-    </tr>
+    san_card = _render_phase_card(project_root, "Sanitized Input", san, [
+        (f"Prior Year Sources ({prior})", "prior_sources"),
+        (f"Current Year Sources ({year})", "current_sources"),
+        (f"Prior Year Filed ({prior})", "prior_filed"),
+    ], step_number=3)
 
-    <!-- Filed / Assembled row group -->
-    <tr class="sub-header">
-      <td>Prior Year Filed</td>
-      <td></td>
-      <td>Prior Year Filed</td>
-      <td></td>
-      <td>Prior Year Filed</td>
-      <td></td>
-      <td colspan="2"></td>
-    </tr>
-    <tr>
-      <td>{cell(raw, "prior_filed")}</td>
-      <td></td>
-      <td>{cell(ext, "prior_filed")}</td>
-      <td></td>
-      <td>{cell(san, "prior_filed")}</td>
-      <td></td>
-      <td colspan="2"></td>
-    </tr>
-  </tbody>
-</table>"""
+    out_card = _render_phase_card(project_root, "Output", out, [
+        (f"Current Year Instructions ({year})", "current_instructions"),
+        (f"Current Year Filed ({year})", "current_filed"),
+        (f"Current Year Assembled ({year})", "current_assembled"),
+    ], step_number=4)
+
+    return f"""<div class="desktop-grid">
+  <div class="grid-cell">{raw_card}</div>
+  <div class="arrow arrow-right">&rarr;</div>
+  <div class="grid-cell">{ext_card}</div>
+
+  <div class="arrow-spacer"></div>
+  <div class="arrow arrow-down">&darr;</div>
+  <div class="arrow-spacer"></div>
+
+  <div class="grid-cell">{san_card}</div>
+  <div class="arrow arrow-right">&rarr;</div>
+  <div class="grid-cell">{out_card}</div>
+</div>"""
 
 
 def _render_cards(project_root: Path, state: dict) -> str:
@@ -343,6 +310,7 @@ def _render_cards(project_root: Path, state: dict) -> str:
     ], step_number=3))
 
     cards.append(_render_phase_card(project_root, "Output", out, [
+        (f"Current Year Instructions ({year})", "current_instructions"),
         (f"Current Year Filed ({year})", "current_filed"),
         (f"Current Year Assembled ({year})", "current_assembled"),
     ], step_number=4))
@@ -407,12 +375,28 @@ def regenerate_html(project_root: Path) -> Path:
   .badge {{ display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; margin: 8px 0; }}
   .badge-complete {{ background: #c8e6c9; color: #2e7d32; }}
 
-  /* Desktop: table layout */
+  /* Desktop: 2x2 grid layout with flow arrows */
   .desktop-view {{ display: block; }}
-  table {{ border-collapse: collapse; width: 100%; table-layout: fixed; }}
-  th {{ background: #1a237e; color: #fff; padding: 8px 6px; font-size: 13px; text-align: center; border: 1px solid #0d1553; }}
-  td {{ vertical-align: top; padding: 4px 8px; border: 1px solid #ccc; font-size: 13px; }}
-  .sub-header td {{ background: #e8eaf6; font-weight: bold; font-size: 12px; text-align: center; padding: 4px; }}
+  .desktop-grid {{
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    grid-template-rows: auto auto auto;
+    gap: 0;
+    align-items: stretch;
+  }}
+  .grid-cell {{ min-width: 0; display: flex; }}
+  .desktop-grid .phase-card {{ margin-bottom: 0; flex: 1; }}
+  .arrow {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: bold;
+    color: #1a237e;
+  }}
+  .arrow-right {{ padding: 0 12px; }}
+  .arrow-down {{ padding: 8px 0; transform: rotate(45deg); }}
+  .arrow-spacer {{ }}
 
   /* Mobile: card layout (hidden by default) */
   .mobile-view {{ display: none; max-width: 600px; margin: 0 auto; }}
