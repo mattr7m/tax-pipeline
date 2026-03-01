@@ -192,73 +192,52 @@ def _render_file_list(
     return "\n".join(lines)
 
 
-def regenerate_html(project_root: Path) -> Path:
+def _render_phase_card(
+    project_root: Path,
+    title: str,
+    phase_dict: dict,
+    sections: list,
+    step_number: int,
+) -> str:
     """
-    Read state, verify file existence on disk, and write tax-dashboard.html.
+    Render a single pipeline phase as a vertical card.
 
-    Returns the path to the generated HTML file.
+    Args:
+        title: Phase display name (e.g. "Raw Input")
+        phase_dict: State dict for this phase
+        sections: List of (label, category_key) tuples to render
+        step_number: 1-based step index for the step indicator
     """
-    state = load_state(project_root)
+    items = []
+    for label, key in sections:
+        entries = phase_dict.get(key, [])
+        file_list = _render_file_list(project_root, entries)
+        items.append(f'      <div class="category">\n'
+                     f'        <h3>{label}</h3>\n'
+                     f'        {file_list}\n'
+                     f'      </div>')
+
+    inner = "\n".join(items)
+    return (f'  <section class="phase-card">\n'
+            f'    <h2><span class="step">{step_number}</span>{title}</h2>\n'
+            f'    <div class="categories">\n{inner}\n'
+            f'    </div>\n'
+            f'  </section>')
+
+
+def _render_table(project_root: Path, state: dict) -> str:
+    """Render the desktop table layout."""
     year = state.get("year", "?")
     prior = state.get("prior_year", "?")
-    updated = state.get("updated_at", "")
-    processing_complete = state.get("status", {}).get("processing_complete", False)
-
     raw = state.get("raw_input", {})
     ext = state.get("extracted_input", {})
     san = state.get("sanitized_input", {})
     out = state.get("output", {})
 
-    # Build table cells for each section. Order: raw(prior, cur), ext(prior, cur), san(prior, cur), output(cur filed, cur asm)
     def cell(phase_dict, key):
         return _render_file_list(project_root, phase_dict.get(key, []))
 
-    processing_badge = ""
-    if processing_complete:
-        processing_badge = '<div class="badge badge-complete">Processing Complete</div>'
-
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tax Dashboard — {year}</title>
-<style>
-  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #fafafa; color: #333; padding: 16px; }}
-  h1 {{ margin-bottom: 4px; font-size: 22px; }}
-  .meta {{ color: #666; font-size: 13px; margin-bottom: 12px; }}
-  table {{ border-collapse: collapse; width: 100%; table-layout: fixed; }}
-  th {{ background: #1a237e; color: #fff; padding: 8px 6px; font-size: 13px; text-align: center; border: 1px solid #0d1553; }}
-  td {{ vertical-align: top; padding: 4px 8px; border: 1px solid #ccc; font-size: 13px; }}
-  .sub-header td {{ background: #e8eaf6; font-weight: bold; font-size: 12px; text-align: center; padding: 4px; }}
-  .group-label td {{ background: #f5f5f5; font-weight: bold; font-size: 12px; border-top: 2px solid #999; }}
-  ul.file-list {{ list-style: none; padding: 0; margin: 0; }}
-  ul.file-list li {{ padding: 2px 0; }}
-  ul.file-list li.empty {{ color: #bbb; }}
-  .found a {{ color: #2e7d32; text-decoration: none; }}
-  .found a:hover {{ text-decoration: underline; }}
-  .missing a {{ color: #9e9e9e; text-decoration: none; }}
-  .missing a:hover {{ text-decoration: underline; }}
-  details {{ margin-top: 2px; }}
-  details summary {{ cursor: pointer; font-size: 11px; color: #666; }}
-  details pre {{ max-height: 400px; overflow-y: auto; font-size: 11px; background: #f8f8f8; border: 1px solid #ddd; padding: 6px; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }}
-  .json-key {{ color: #1565c0; }}
-  .json-str {{ color: #2e7d32; }}
-  .json-num {{ color: #e65100; }}
-  .json-bool {{ color: #7b1fa2; }}
-  .truncated {{ color: #999; font-style: italic; }}
-  .badge {{ display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; margin: 8px 0; }}
-  .badge-complete {{ background: #c8e6c9; color: #2e7d32; }}
-</style>
-</head>
-<body>
-
-<h1>Tax Pipeline Dashboard</h1>
-<p class="meta">Year: {year} | Prior year: {prior} | Updated: {updated}</p>
-{processing_badge}
-
-<table>
+    return f"""<table>
   <thead>
     <tr>
       <th colspan="2">Raw Input</th>
@@ -328,7 +307,143 @@ def regenerate_html(project_root: Path) -> Path:
       <td colspan="2"></td>
     </tr>
   </tbody>
-</table>
+</table>"""
+
+
+def _render_cards(project_root: Path, state: dict) -> str:
+    """Render the mobile vertical card layout."""
+    year = state.get("year", "?")
+    prior = state.get("prior_year", "?")
+    raw = state.get("raw_input", {})
+    ext = state.get("extracted_input", {})
+    san = state.get("sanitized_input", {})
+    out = state.get("output", {})
+
+    cards = []
+    cards.append(_render_phase_card(project_root, "Raw Input", raw, [
+        (f"Prior Year Sources ({prior})", "prior_sources"),
+        (f"Current Year Sources ({year})", "current_sources"),
+        (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
+        (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
+        (f"Prior Year Filed ({prior})", "prior_filed"),
+    ], step_number=1))
+
+    cards.append(_render_phase_card(project_root, "Extracted Input", ext, [
+        (f"Prior Year Sources ({prior})", "prior_sources"),
+        (f"Current Year Sources ({year})", "current_sources"),
+        (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
+        (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
+        (f"Prior Year Filed ({prior})", "prior_filed"),
+    ], step_number=2))
+
+    cards.append(_render_phase_card(project_root, "Sanitized Input", san, [
+        (f"Prior Year Sources ({prior})", "prior_sources"),
+        (f"Current Year Sources ({year})", "current_sources"),
+        (f"Prior Year Filed ({prior})", "prior_filed"),
+    ], step_number=3))
+
+    cards.append(_render_phase_card(project_root, "Output", out, [
+        (f"Current Year Filed ({year})", "current_filed"),
+        (f"Current Year Assembled ({year})", "current_assembled"),
+    ], step_number=4))
+
+    return "\n\n".join(cards)
+
+
+def regenerate_html(project_root: Path) -> Path:
+    """
+    Read state, verify file existence on disk, and write tax-dashboard.html.
+
+    Generates both a desktop table layout and a mobile card layout,
+    switching between them via CSS media query at 900px.
+
+    Returns the path to the generated HTML file.
+    """
+    state = load_state(project_root)
+    year = state.get("year", "?")
+    prior = state.get("prior_year", "?")
+    updated = state.get("updated_at", "")
+    processing_complete = state.get("status", {}).get("processing_complete", False)
+
+    processing_badge = ""
+    if processing_complete:
+        processing_badge = '<div class="badge badge-complete">Processing Complete</div>'
+
+    table_html = _render_table(project_root, state)
+    cards_html = _render_cards(project_root, state)
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tax Dashboard — {year}</title>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #fafafa; color: #333; padding: 16px; }}
+  h1 {{ margin-bottom: 4px; font-size: 22px; }}
+  .meta {{ color: #666; font-size: 13px; margin-bottom: 12px; }}
+
+  /* Shared: file lists */
+  ul.file-list {{ list-style: none; padding: 0; margin: 0; }}
+  ul.file-list li {{ padding: 2px 0; }}
+  ul.file-list li.empty {{ color: #bbb; }}
+  .found a {{ color: #2e7d32; text-decoration: none; }}
+  .found a:hover {{ text-decoration: underline; }}
+  .missing a {{ color: #9e9e9e; text-decoration: none; }}
+  .missing a:hover {{ text-decoration: underline; }}
+
+  /* Shared: previews */
+  details {{ margin-top: 2px; }}
+  details summary {{ cursor: pointer; font-size: 11px; color: #666; }}
+  details pre {{ max-height: 400px; overflow-y: auto; font-size: 11px; background: #f8f8f8; border: 1px solid #ddd; padding: 6px; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }}
+  .json-key {{ color: #1565c0; }}
+  .json-str {{ color: #2e7d32; }}
+  .json-num {{ color: #e65100; }}
+  .json-bool {{ color: #7b1fa2; }}
+  .truncated {{ color: #999; font-style: italic; }}
+
+  /* Shared: badge */
+  .badge {{ display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; margin: 8px 0; }}
+  .badge-complete {{ background: #c8e6c9; color: #2e7d32; }}
+
+  /* Desktop: table layout */
+  .desktop-view {{ display: block; }}
+  table {{ border-collapse: collapse; width: 100%; table-layout: fixed; }}
+  th {{ background: #1a237e; color: #fff; padding: 8px 6px; font-size: 13px; text-align: center; border: 1px solid #0d1553; }}
+  td {{ vertical-align: top; padding: 4px 8px; border: 1px solid #ccc; font-size: 13px; }}
+  .sub-header td {{ background: #e8eaf6; font-weight: bold; font-size: 12px; text-align: center; padding: 4px; }}
+
+  /* Mobile: card layout (hidden by default) */
+  .mobile-view {{ display: none; max-width: 600px; margin: 0 auto; }}
+  .phase-card {{ background: #fff; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }}
+  .phase-card h2 {{ background: #1a237e; color: #fff; padding: 10px 14px; font-size: 15px; display: flex; align-items: center; gap: 10px; }}
+  .phase-card h2 .step {{ display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.2); font-size: 13px; flex-shrink: 0; }}
+  .categories {{ padding: 8px 0; }}
+  .category {{ padding: 6px 14px; }}
+  .category + .category {{ border-top: 1px solid #eee; }}
+  .category h3 {{ font-size: 12px; color: #555; margin-bottom: 4px; font-weight: 600; }}
+  .mobile-view ul.file-list li {{ font-size: 14px; padding: 3px 0; }}
+
+  @media (max-width: 900px) {{
+    .desktop-view {{ display: none; }}
+    .mobile-view {{ display: block; }}
+  }}
+</style>
+</head>
+<body>
+
+<h1>Tax Pipeline Dashboard</h1>
+<p class="meta">Year: {year} | Prior year: {prior} | Updated: {updated}</p>
+{processing_badge}
+
+<div class="desktop-view">
+{table_html}
+</div>
+
+<div class="mobile-view">
+{cards_html}
+</div>
 
 </body>
 </html>
