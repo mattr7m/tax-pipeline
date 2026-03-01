@@ -25,7 +25,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           grep -v pyage requirements.txt | pip install -r /dev/stdin
-          pip install markdown-it-py pytest
+          pip install markdown-it-py pytest requests
 
       - name: Run tests
         run: python -m pytest
