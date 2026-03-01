@@ -1,0 +1,53 @@
+# Build context exclusions for podman/docker
+# Keeps the image lean and avoids baking in sensitive data
+
+# Version control
+.git
+.gitignore
+
+# Virtual environments
+.venv/
+venv/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*~
+
+# Claude Code
+.claude/
+
+# Sensitive data — the user mounts data/ at runtime
+data/
+
+# Generated dashboard (rebuilt at container startup)
+tax-dashboard.html
+
+# Development artifacts
+dashboard-implementation-plan.md
+tax-dashboard-mock.*
+
+# Environment and credentials
+.env
+.env.*
+*.age.key
+age-key.txt
+secrets.*
+credentials.*
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+
+# PDFs (raw tax documents, downloads, etc.)
+*.pdf
+# Exception: keep blank IRS form templates
+!templates/blank-forms/*.pdf
