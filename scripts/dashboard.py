@@ -120,13 +120,24 @@ def highlight_json(content: str) -> str:
 
 
 def render_md_preview(content: str) -> str:
-    """Render markdown content as preformatted HTML text."""
-    escaped = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return escaped
+    """Render markdown content as HTML using markdown-it-py."""
+    try:
+        from markdown_it import MarkdownIt
+        md = MarkdownIt().enable("table")
+        return md.render(content)
+    except ImportError:
+        # Fallback: escape and return as plain text
+        return "<pre>" + content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</pre>"
 
 
-def _read_preview(project_root: Path, rel_path: str, max_bytes: int = 100_000) -> Optional[str]:
-    """Read file contents for inline preview. Returns None if file doesn't exist or is binary."""
+def _read_preview(
+    project_root: Path, rel_path: str, max_bytes: int = 100_000
+) -> Optional[tuple[str, bool]]:
+    """Read file contents for inline preview.
+
+    Returns (html_string, is_rendered) or None.
+    is_rendered is True for markdown (rendered HTML), False for JSON (pre/code).
+    """
     full_path = project_root / rel_path
     if not full_path.exists():
         return None
@@ -151,11 +162,14 @@ def _read_preview(project_root: Path, rel_path: str, max_bytes: int = 100_000) -
         except Exception:
             pass
         highlighted = highlight_json(raw)
+        if truncated:
+            highlighted += '\n<span class="truncated">(truncated)</span>'
+        return highlighted, False
     else:
-        highlighted = render_md_preview(raw)
-    if truncated:
-        highlighted += '\n<span class="truncated">(truncated)</span>'
-    return highlighted
+        rendered = render_md_preview(raw)
+        if truncated:
+            rendered += '<p class="truncated">(truncated)</p>'
+        return rendered, True
 
 
 def _file_exists(project_root: Path, rel_path: str) -> bool:
@@ -181,12 +195,19 @@ def _render_file_list(
         lines.append(f'  <li class="{css_class}">{link}')
         # Add collapsible preview for existing .json / .md files
         if css_class == "found" and path:
-            preview_html = _read_preview(project_root, path)
-            if preview_html is not None:
-                lines.append(
-                    f'    <details><summary>preview</summary>'
-                    f'<pre><code>{preview_html}</code></pre></details>'
-                )
+            result = _read_preview(project_root, path)
+            if result is not None:
+                preview_html, is_rendered = result
+                if is_rendered:
+                    lines.append(
+                        f'    <details><summary>preview</summary>'
+                        f'<div class="md-preview">{preview_html}</div></details>'
+                    )
+                else:
+                    lines.append(
+                        f'    <details><summary>preview</summary>'
+                        f'<pre><code>{preview_html}</code></pre></details>'
+                    )
         lines.append("  </li>")
     lines.append("</ul>")
     return "\n".join(lines)
@@ -439,6 +460,21 @@ def regenerate_html(project_root: Path) -> Path:
   .json-bool {{ color: #7b1fa2; }}
   .truncated {{ color: #999; font-style: italic; }}
 
+  /* Rendered markdown previews */
+  .md-preview {{ max-height: 400px; overflow-y: auto; font-size: 12px; background: #f8f8f8; border: 1px solid #ddd; padding: 8px 12px; margin-top: 2px; line-height: 1.5; }}
+  .md-preview h1, .md-preview h2, .md-preview h3 {{ color: #555; font-weight: 600; }}
+  .md-preview h1 {{ font-size: 14px; margin: 10px 0 4px; border-bottom: 1px solid #eee; padding-bottom: 3px; }}
+  .md-preview h2 {{ font-size: 13px; margin: 8px 0 4px; }}
+  .md-preview h3 {{ font-size: 12px; margin: 6px 0 3px; }}
+  .md-preview p {{ margin: 4px 0; }}
+  .md-preview ul, .md-preview ol {{ padding-left: 20px; margin: 4px 0; }}
+  .md-preview code {{ background: #e8e8e8; padding: 1px 4px; border-radius: 3px; font-size: 11px; }}
+  .md-preview pre {{ background: #e8e8e8; padding: 6px; border-radius: 4px; overflow-x: auto; font-size: 11px; margin: 4px 0; }}
+  .md-preview pre code {{ background: none; padding: 0; }}
+  .md-preview table {{ border-collapse: collapse; margin: 4px 0; font-size: 11px; }}
+  .md-preview th, .md-preview td {{ border: 1px solid #ddd; padding: 3px 8px; }}
+  .md-preview th {{ background: #eee; }}
+
   /* Shared: badge */
   .badge {{ display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; margin: 8px 0; }}
   .badge-complete {{ background: #c8e6c9; color: #2e7d32; }}
@@ -469,8 +505,8 @@ def regenerate_html(project_root: Path) -> Path:
   /* Mobile: card layout (hidden by default) */
   .mobile-view {{ display: none; max-width: 600px; margin: 0 auto; }}
   .phase-card {{ background: #fff; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }}
-  .phase-card h2 {{ background: #1a237e; color: #fff; padding: 10px 14px; font-size: 15px; display: flex; align-items: center; gap: 10px; }}
-  .phase-card h2 .step {{ display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.2); font-size: 13px; flex-shrink: 0; }}
+  .phase-card > h2 {{ background: #1a237e; color: #fff; padding: 10px 14px; font-size: 15px; display: flex; align-items: center; gap: 10px; }}
+  .phase-card > h2 .step {{ display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.2); font-size: 13px; flex-shrink: 0; }}
   .categories {{ padding: 8px 0; }}
   .category {{ padding: 6px 14px; }}
   .category + .category {{ border-top: 1px solid #eee; }}
