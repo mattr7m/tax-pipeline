@@ -391,9 +391,10 @@ class TestCheckBackendAvailable:
 class TestExtractMain:
     """Tests for the extract.py CLI entry point."""
 
+    @patch("extract.safe_resolve", side_effect=lambda root, p: Path(p).resolve())
     @patch("extract.check_backend_available", return_value=False)
     @patch("extract.load_config")
-    def test_backend_unavailable_exits(self, mock_config, mock_check, tmp_path, test_config):
+    def test_backend_unavailable_exits(self, mock_config, mock_check, mock_safe, tmp_path, test_config):
         mock_config.return_value = test_config
         input_dir = tmp_path / "input"
         input_dir.mkdir()
