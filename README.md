@@ -198,7 +198,10 @@ podman run -it --rm \
 Build the image locally:
 
 ```bash
-podman build -t tax-pipeline -f Containerfile .
+make build
+
+# Use docker instead of podman
+make build ENGINE=docker
 ```
 
 ### Full Pipeline (Claude API + Ollama extraction - default)
