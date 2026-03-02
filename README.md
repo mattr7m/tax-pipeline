@@ -2,13 +2,13 @@
 
 ![Tax pipeline banner](assets/banner.jpg)
 
+A hybrid local/cloud workflow for processing tax forms with maximum privacy.
+
 > [!NOTE]
 > **This is not tax advice or professional tax software.** This is a personal
 > automation project. The authors assume no liability for errors, omissions, or
 > any consequences arising from its use. Always review all output with a
 > qualified tax professional before filing. **Use entirely at your own risk.**
-
-A hybrid local/cloud workflow for processing tax forms with maximum privacy.
 
 ## Architecture
 
