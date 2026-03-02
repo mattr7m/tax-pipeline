@@ -1,6 +1,8 @@
 """Tests for serve_dashboard.py — DashboardHandler routing, file serving, and security."""
 
+import base64
 import io
+from email.parser import Parser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -11,7 +13,8 @@ import pytest
 from serve_dashboard import DashboardHandler, RELOAD_SCRIPT
 
 
-def _make_handler(tmp_path, path="/", inject_reload=True, dashboard_content=None):
+def _make_handler(tmp_path, path="/", inject_reload=True, dashboard_content=None,
+                  auth_username=None, auth_password=None, auth_header=None):
     """Construct a DashboardHandler without starting a real server.
 
     Uses object.__new__ to skip BaseHTTPRequestHandler.__init__ (which
@@ -29,6 +32,8 @@ def _make_handler(tmp_path, path="/", inject_reload=True, dashboard_content=None
     handler.dashboard_path = dashboard_path
     handler.project_root = tmp_path
     handler.inject_reload = inject_reload
+    handler.auth_username = auth_username
+    handler.auth_password = auth_password
     # BaseHTTPRequestHandler attributes for response writing
     handler.request_version = "HTTP/1.1"
     handler.command = "GET"
@@ -40,6 +45,11 @@ def _make_handler(tmp_path, path="/", inject_reload=True, dashboard_content=None
     handler.wfile = wfile
     # Suppress stderr logging during tests
     handler.log_request = lambda *a, **kw: None
+    # Build headers (needed for auth check)
+    header_text = ""
+    if auth_header:
+        header_text = f"Authorization: {auth_header}\r\n"
+    handler.headers = Parser().parsestr(header_text)
 
     handler.do_GET()
     wfile.seek(0)
@@ -191,6 +201,8 @@ class TestLogSuppression:
         handler.dashboard_path = dashboard_path
         handler.project_root = tmp_path
         handler.inject_reload = True
+        handler.auth_username = None
+        handler.auth_password = None
         handler.request_version = "HTTP/1.1"
         handler.client_address = ("127.0.0.1", 12345)
         handler.requestline = "GET / HTTP/1.1"
@@ -209,3 +221,100 @@ class TestLogSuppression:
         with patch.object(BaseHTTPRequestHandler, "log_message") as mock_log:
             handler.log_message("%s", "GET / HTTP/1.1")
             mock_log.assert_called_once()
+
+
+def _encode_basic(username, password):
+    """Encode credentials as a Basic auth header value."""
+    creds = base64.b64encode(f"{username}:{password}".encode()).decode()
+    return f"Basic {creds}"
+
+
+class TestBasicAuth:
+    """Tests for HTTP Basic Auth."""
+
+    def test_no_auth_configured_allows_access(self, tmp_path):
+        """When auth is disabled, all requests pass through."""
+        _, wfile = _make_handler(tmp_path, "/", dashboard_content="<html>ok</html>")
+        status, _, _ = _parse_response(wfile)
+        assert status == 200
+
+    def test_missing_credentials_returns_401(self, tmp_path):
+        """Auth enabled but no credentials returns 401 with WWW-Authenticate."""
+        _, wfile = _make_handler(
+            tmp_path, "/", dashboard_content="<html>ok</html>",
+            auth_username="admin", auth_password="secret123",
+        )
+        status, headers, _ = _parse_response(wfile)
+        assert status == 401
+        assert "WWW-Authenticate" in headers
+        assert "Basic" in headers
+
+    def test_valid_credentials_allow_access(self, tmp_path):
+        """Correct credentials return 200."""
+        _, wfile = _make_handler(
+            tmp_path, "/", dashboard_content="<html>ok</html>",
+            auth_username="admin", auth_password="secret123",
+            auth_header=_encode_basic("admin", "secret123"),
+        )
+        status, _, body = _parse_response(wfile)
+        assert status == 200
+        assert "ok" in body
+
+    def test_wrong_password_returns_401(self, tmp_path):
+        _, wfile = _make_handler(
+            tmp_path, "/", dashboard_content="<html>ok</html>",
+            auth_username="admin", auth_password="secret123",
+            auth_header=_encode_basic("admin", "wrongpass"),
+        )
+        status, _, _ = _parse_response(wfile)
+        assert status == 401
+
+    def test_wrong_username_returns_401(self, tmp_path):
+        _, wfile = _make_handler(
+            tmp_path, "/", dashboard_content="<html>ok</html>",
+            auth_username="admin", auth_password="secret123",
+            auth_header=_encode_basic("hacker", "secret123"),
+        )
+        status, _, _ = _parse_response(wfile)
+        assert status == 401
+
+    def test_malformed_auth_header_returns_401(self, tmp_path):
+        """Non-Basic auth scheme returns 401."""
+        _, wfile = _make_handler(
+            tmp_path, "/", dashboard_content="<html>ok</html>",
+            auth_username="admin", auth_password="secret123",
+            auth_header="Bearer some-token",
+        )
+        status, _, _ = _parse_response(wfile)
+        assert status == 401
+
+    def test_invalid_base64_returns_401(self, tmp_path):
+        """Corrupted base64 in auth header returns 401."""
+        _, wfile = _make_handler(
+            tmp_path, "/", dashboard_content="<html>ok</html>",
+            auth_username="admin", auth_password="secret123",
+            auth_header="Basic not-valid-b64!!!",
+        )
+        status, _, _ = _parse_response(wfile)
+        assert status == 401
+
+    def test_auth_protects_mtime(self, tmp_path):
+        """Auth applies to /mtime endpoint."""
+        _, wfile = _make_handler(
+            tmp_path, "/mtime", dashboard_content="<html>ok</html>",
+            auth_username="admin", auth_password="secret123",
+        )
+        status, _, _ = _parse_response(wfile)
+        assert status == 401
+
+    def test_auth_protects_file_serving(self, tmp_path):
+        """Auth applies to file serving routes."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "test.json").write_text("{}")
+        _, wfile = _make_handler(
+            tmp_path, "/data/test.json", dashboard_content="<html>ok</html>",
+            auth_username="admin", auth_password="secret123",
+        )
+        status, _, _ = _parse_response(wfile)
+        assert status == 401

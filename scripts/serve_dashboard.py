@@ -9,9 +9,12 @@ Usage:
     python scripts/serve_dashboard.py [--host 0.0.0.0] [--port 8000] [--no-reload]
 """
 
+import base64
 import functools
+import hmac
 import mimetypes
 import os
+import secrets
 import socket
 import sys
 import urllib.parse
@@ -50,13 +53,54 @@ RELOAD_SCRIPT = """
 class DashboardHandler(BaseHTTPRequestHandler):
     """Serves the dashboard HTML, mtime endpoint, and linked project files."""
 
-    def __init__(self, *args, dashboard_path, project_root, inject_reload=True, **kwargs):
+    def __init__(self, *args, dashboard_path, project_root, inject_reload=True,
+                 auth_username=None, auth_password=None, **kwargs):
         self.dashboard_path = dashboard_path
         self.project_root = project_root
         self.inject_reload = inject_reload
+        self.auth_username = auth_username
+        self.auth_password = auth_password
         super().__init__(*args, **kwargs)
 
+    def _check_auth(self):
+        """Verify Basic Auth credentials. Returns True if OK or auth disabled."""
+        if self.auth_username is None or self.auth_password is None:
+            return True
+
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Basic "):
+            self._send_auth_required()
+            return False
+
+        try:
+            decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
+            username, password = decoded.split(":", 1)
+        except (ValueError, UnicodeDecodeError):
+            self._send_auth_required()
+            return False
+
+        username_ok = hmac.compare_digest(username, self.auth_username)
+        password_ok = hmac.compare_digest(password, self.auth_password)
+
+        if not (username_ok and password_ok):
+            self._send_auth_required()
+            return False
+
+        return True
+
+    def _send_auth_required(self):
+        """Send 401 response with WWW-Authenticate header."""
+        self.send_response(HTTPStatus.UNAUTHORIZED)
+        self.send_header("WWW-Authenticate", 'Basic realm="Tax Dashboard"')
+        self.send_header("Content-Type", "text/plain")
+        body = b"401 Unauthorized\n"
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
+        if not self._check_auth():
+            return
         if self.path == "/" or self.path == "/index.html":
             self._serve_dashboard()
         elif self.path == "/mtime":
@@ -166,17 +210,39 @@ def _get_local_ip():
     default=False,
     help="Disable auto-refresh injection",
 )
-def main(host, port, no_reload):
+@click.option("--auth/--no-auth", default=False, help="Enable HTTP Basic Auth")
+@click.option("--auth-username", default="admin", help="Basic Auth username (default: admin)")
+@click.option(
+    "--auth-password",
+    default=None,
+    envvar="DASHBOARD_PASSWORD",
+    help="Basic Auth password (env: DASHBOARD_PASSWORD; auto-generated if omitted)",
+)
+def main(host, port, no_reload, auth, auth_username, auth_password):
     """Start a local server for the tax pipeline dashboard."""
     config = load_config()
     dashboard_rel = config.get("paths", {}).get("dashboard", "tax-dashboard.html")
     dashboard_path = PROJECT_ROOT / dashboard_rel
+
+    effective_username = None
+    effective_password = None
+    if auth:
+        if auth_password is None:
+            auth_password = secrets.token_urlsafe(16)
+        effective_username = auth_username
+        effective_password = auth_password
+        click.echo(f"Auth enabled (username: {auth_username})")
+        click.echo(f"Password: {auth_password}")
+    else:
+        click.echo("Auth: disabled")
 
     handler = functools.partial(
         DashboardHandler,
         dashboard_path=dashboard_path,
         project_root=PROJECT_ROOT,
         inject_reload=not no_reload,
+        auth_username=effective_username,
+        auth_password=effective_password,
     )
 
     server = HTTPServer((host, port), handler, bind_and_activate=False)

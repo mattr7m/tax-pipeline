@@ -37,17 +37,25 @@ echo "Running inventory for tax year $TAX_YEAR..."
 python3 scripts/inventory.py --year "$TAX_YEAR"
 
 # ---------------------------------------------------------------------------
+# Generate dashboard credentials
+# ---------------------------------------------------------------------------
+DASHBOARD_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(16))")
+export DASHBOARD_PASSWORD
+
+# ---------------------------------------------------------------------------
 # Start dashboard server in background
 # ---------------------------------------------------------------------------
 DASHBOARD_PORT="${DASHBOARD_PORT:-8000}"
 echo "Starting dashboard server on port $DASHBOARD_PORT..."
-python3 scripts/serve_dashboard.py --host 0.0.0.0 --port "$DASHBOARD_PORT" &
+python3 scripts/serve_dashboard.py --host 0.0.0.0 --port "$DASHBOARD_PORT" --auth &
 
 echo ""
 echo "============================================"
 echo "  Tax Processor Ready"
 echo "  Tax Year: $TAX_YEAR"
 echo "  Dashboard: http://localhost:$DASHBOARD_PORT"
+echo "  Username:  admin"
+echo "  Password:  $DASHBOARD_PASSWORD"
 echo "============================================"
 echo ""
 echo "Commands:"
