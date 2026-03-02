@@ -1,0 +1,31 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-eng poppler-utils
+
+      - name: Install Python dependencies
+        run: |
+          grep -v pyage requirements.txt | pip install -r /dev/stdin
+          pip install markdown-it-py pytest requests
+
+      - name: Run tests
+        run: python -m pytest
