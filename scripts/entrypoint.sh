@@ -74,5 +74,9 @@ if [ $# -gt 0 ]; then
     exec "$@"
 fi
 
-# Drop to interactive bash
-exec bash
+# Interactive TTY → drop to bash; detached → wait on the dashboard server
+if [ -t 0 ]; then
+    exec bash
+else
+    wait
+fi
