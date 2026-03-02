@@ -25,7 +25,7 @@
 #     -v ./data:/data/taxes/data:Z \
 #     tax-processor
 
-FROM registry.fedoraproject.org/fedora:41
+FROM registry.fedoraproject.org/fedora@sha256:3fb969dd07e631c17d12f5955bcb6db2078a6997eb68be76b6492e7bd6052e88
 
 # System dependencies:
 #   tesseract + eng langpack — OCR for PDF text extraction (pytesseract)
