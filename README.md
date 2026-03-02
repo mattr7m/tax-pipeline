@@ -1,5 +1,7 @@
 # Secure Tax Form Processing Pipeline
 
+![Tax pipeline banner](assets/banner.jpg)
+
 > [!NOTE]
 > **This is not tax advice or professional tax software.** This is a personal
 > automation project. The authors assume no liability for errors, omissions, or
