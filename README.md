@@ -156,6 +156,54 @@ The orchestrator automatically:
 
 ## Usage
 
+### Container
+
+Pre-built images are available from GHCR:
+
+```bash
+podman pull ghcr.io/mattr7m/tax-pipeline:latest
+```
+
+Run with a local data directory mounted in:
+
+```bash
+podman run -it --rm \
+  -e TAX_YEAR=2025 \
+  -v ./data:/data/taxes/data:Z \
+  -p 8000:8000 \
+  ghcr.io/mattr7m/tax-pipeline:latest
+```
+
+To use the Claude API from inside the container:
+
+```bash
+podman run -it --rm \
+  -e TAX_YEAR=2025 \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -v ./data:/data/taxes/data:Z \
+  -p 8000:8000 \
+  ghcr.io/mattr7m/tax-pipeline:latest
+```
+
+To reach Ollama or a local LLM server running on the host:
+
+```bash
+podman run -it --rm \
+  --network=host \
+  -e TAX_YEAR=2025 \
+  -v ./data:/data/taxes/data:Z \
+  ghcr.io/mattr7m/tax-pipeline:latest
+```
+
+Build the image locally:
+
+```bash
+make build
+
+# Use docker instead of podman
+make build ENGINE=docker
+```
+
 ### Full Pipeline (Claude API + Ollama extraction - default)
 ```bash
 python scripts/orchestrate.py --year 2025
