@@ -68,15 +68,11 @@ echo "  python3 scripts/inventory.py --year $TAX_YEAR"
 echo ""
 
 # ---------------------------------------------------------------------------
-# If arguments were passed, run them instead of interactive shell
+# If arguments were passed (e.g. "bash" for interactive shell), run them.
+# Otherwise wait on the dashboard server to keep the container alive.
 # ---------------------------------------------------------------------------
 if [ $# -gt 0 ]; then
     exec "$@"
 fi
 
-# Interactive TTY → drop to bash; detached → wait on the dashboard server
-if [ -t 0 ]; then
-    exec bash
-else
-    wait
-fi
+wait
