@@ -43,11 +43,9 @@ DASHBOARD_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(16)
 export DASHBOARD_PASSWORD
 
 # ---------------------------------------------------------------------------
-# Start dashboard server in background
+# Print ready banner
 # ---------------------------------------------------------------------------
 DASHBOARD_PORT="${DASHBOARD_PORT:-8000}"
-echo "Starting dashboard server on port $DASHBOARD_PORT..."
-python3 scripts/serve_dashboard.py --host 0.0.0.0 --port "$DASHBOARD_PORT" --auth &
 
 echo ""
 echo "============================================"
@@ -58,21 +56,19 @@ echo "  Username:  admin"
 echo "  Password:  $DASHBOARD_PASSWORD"
 echo "============================================"
 echo ""
-echo "Commands:"
+echo "Commands (via podman exec):"
 echo "  python3 scripts/orchestrate.py --year $TAX_YEAR"
 echo "  python3 scripts/extract.py --help"
-echo "  python3 scripts/sanitize.py --help"
-echo "  python3 scripts/process.py --help"
-echo "  python3 scripts/assemble.py --help"
 echo "  python3 scripts/inventory.py --year $TAX_YEAR"
 echo ""
 
 # ---------------------------------------------------------------------------
-# If arguments were passed (e.g. "bash" for interactive shell), run them.
-# Otherwise wait on the dashboard server to keep the container alive.
+# If arguments were passed, start server in background and exec the command.
+# Otherwise exec the server as the foreground process (keeps container alive).
 # ---------------------------------------------------------------------------
 if [ $# -gt 0 ]; then
+    python3 scripts/serve_dashboard.py --host 0.0.0.0 --port "$DASHBOARD_PORT" --auth &
     exec "$@"
 fi
 
-wait
+exec python3 scripts/serve_dashboard.py --host 0.0.0.0 --port "$DASHBOARD_PORT" --auth
