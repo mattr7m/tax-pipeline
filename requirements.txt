@@ -11,6 +11,9 @@ ollama>=0.3.0
 # Claude API
 anthropic>=0.39.0
 
+# HTTP
+requests>=2.31.0
+
 # Data handling
 pyyaml>=6.0
 pydantic>=2.0.0

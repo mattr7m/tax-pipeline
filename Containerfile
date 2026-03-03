@@ -39,7 +39,8 @@ RUN dnf install -y --setopt=install_weak_deps=False \
         poppler-utils \
         age \
     && dnf clean all \
-    && rm -rf /var/cache/dnf
+    && rm -rf /var/cache/dnf \
+    && ln -s /usr/bin/python3 /usr/bin/python
 
 WORKDIR /data/taxes
 
