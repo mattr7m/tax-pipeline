@@ -23,16 +23,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 import click
-import yaml
 
-# Resolve project root (parent of scripts/)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-
-def load_config():
-    config_path = PROJECT_ROOT / "config.yaml"
-    with open(config_path) as f:
-        return yaml.safe_load(f)
+from config_loader import load_config, PROJECT_ROOT
 
 
 RELOAD_SCRIPT = """

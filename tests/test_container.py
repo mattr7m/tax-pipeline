@@ -77,6 +77,9 @@ class TestEntrypointDirCreation:
     @pytest.fixture()
     def dir_script(self, tmp_path):
         """Extract just the mkdir block from entrypoint.sh and run it."""
+        # Seed a config.yaml.example so the entrypoint can copy it
+        (tmp_path / "config.yaml.example").write_text("paths:\n  output: data/output\n")
+
         # Build a minimal script that only does the mkdir portion
         script = (
             '#!/bin/bash\n'
@@ -94,7 +97,10 @@ class TestEntrypointDirCreation:
             '    data/sanitized \\\n'
             '    data/vault \\\n'
             '    data/instructions \\\n'
-            '    data/output/"$TAX_YEAR"\n'
+            '    data/output/"$TAX_YEAR" \\\n'
+            '    data/templates/blank-forms \\\n'
+            '    data/tax-knowledge\n'
+            '[ ! -f data/config.yaml ] && cp config.yaml.example data/config.yaml\n'
         )
         script_path = tmp_path / "mkdir_test.sh"
         script_path.write_text(script)
@@ -121,6 +127,15 @@ class TestEntrypointDirCreation:
         for d in ("extracted", "sanitized", "vault", "instructions"):
             assert (dir_script / "data" / d).is_dir()
         assert (dir_script / "data" / "output" / "2025").is_dir()
+
+    def test_creates_templates_and_knowledge_dirs(self, dir_script):
+        """data/templates/blank-forms and data/tax-knowledge created."""
+        assert (dir_script / "data" / "templates" / "blank-forms").is_dir()
+        assert (dir_script / "data" / "tax-knowledge").is_dir()
+
+    def test_seeds_config(self, dir_script):
+        """data/config.yaml created from config.yaml.example on first run."""
+        assert (dir_script / "data" / "config.yaml").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +215,7 @@ class TestContainerImage:
         result = _podman_run(
             "tax-processor",
             "bash", "-c",
-            "test -f config.yaml && test -f scripts/inventory.py && test -x scripts/entrypoint.sh && echo OK",
+            "test -f config.yaml.example && test -f scripts/inventory.py && test -x scripts/entrypoint.sh && echo OK",
             env={"TAX_YEAR": "2025"},
         )
         assert result.returncode == 0
@@ -241,8 +256,9 @@ class TestContainerImage:
         assert "OK" in result.stdout
 
     def test_dashboard_server_responds(self):
-        """Dashboard server on port 8000 returns HTTP 200."""
-        # Use a short sleep to let the server start, then curl
+        """Dashboard server on port 8000 returns HTTP 401 (auth enabled)."""
+        # The entrypoint auto-generates credentials and starts with --auth,
+        # so an unauthenticated request gets 401 — which proves the server is up.
         result = _podman_run(
             "tax-processor",
             "bash", "-c",
@@ -251,7 +267,7 @@ class TestContainerImage:
             timeout=30,
         )
         assert result.returncode == 0
-        assert "200" in result.stdout
+        assert "401" in result.stdout
 
     def test_missing_tax_year_fails(self):
         """No TAX_YEAR → exit code 1."""

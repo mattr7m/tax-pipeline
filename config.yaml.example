@@ -8,8 +8,8 @@ paths:
   vault: "data/vault"
   instructions: "data/instructions"
   output: "data/output"
-  blank_forms: "templates/blank-forms"
-  tax_knowledge: "tax-knowledge"
+  blank_forms: "data/templates/blank-forms"
+  tax_knowledge: "data/tax-knowledge"
   dashboard: "tax-dashboard.html"
   dashboard_state: "data/dashboard-state.json"
 

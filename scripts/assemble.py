@@ -15,7 +15,8 @@ import click
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
-import yaml
+
+from config_loader import load_config
 
 # PDF manipulation
 try:
@@ -32,13 +33,6 @@ except ImportError:
 
 
 console = Console()
-
-
-def load_config() -> dict:
-    """Load configuration from config.yaml"""
-    config_path = Path(__file__).parent.parent / "config.yaml"
-    with open(config_path) as f:
-        return yaml.safe_load(f)
 
 
 def decrypt_vault(vault_path: Path, passphrase: str) -> dict:

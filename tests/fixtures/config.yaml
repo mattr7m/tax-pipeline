@@ -6,8 +6,8 @@ paths:
   vault: "data/vault"
   instructions: "data/instructions"
   output: "data/output"
-  blank_forms: "templates/blank-forms"
-  tax_knowledge: "tax-knowledge"
+  blank_forms: "data/templates/blank-forms"
+  tax_knowledge: "data/tax-knowledge"
 
 ollama:
   model: "test-model"

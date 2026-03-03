@@ -22,7 +22,6 @@ import sys
 from pathlib import Path
 from typing import Optional
 import click
-import yaml
 import requests
 
 # Make rich optional
@@ -43,12 +42,12 @@ except ImportError:
 
 
 def load_config() -> dict:
-    """Load configuration from config.yaml"""
-    config_path = Path(__file__).parent.parent / "config.yaml"
-    if config_path.exists():
-        with open(config_path) as f:
-            return yaml.safe_load(f)
-    return {}
+    """Load configuration, delegating to config_loader."""
+    try:
+        from config_loader import load_config as _load
+        return _load()
+    except (ImportError, FileNotFoundError):
+        return {}
 
 
 def extract_text_from_pdf(pdf_path: Path, max_pages: Optional[int] = None) -> list[dict]:
@@ -407,7 +406,8 @@ def main(
     
     # Determine output path
     if output_path is None:
-        knowledge_dir = Path(__file__).parent.parent / "tax-knowledge" / str(tax_year)
+        tax_knowledge_base = config.get("paths", {}).get("tax_knowledge", "data/tax-knowledge")
+        knowledge_dir = Path(__file__).parent.parent / tax_knowledge_base / str(tax_year)
         knowledge_dir.mkdir(parents=True, exist_ok=True)
         output_path = knowledge_dir / f"form-{form_name.lower()}-instructions.md"
     else:

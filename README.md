@@ -39,6 +39,9 @@ cd tax-processor
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+
+# Create your local config
+cp config.yaml.example data/config.yaml
 ```
 
 ### Pull Local LLM for Extraction
@@ -88,17 +91,19 @@ Alternative models for different hardware:
 
 ```
 tax-processor/
-├── config.yaml              # Configuration
+├── config.yaml.example      # Tracked seed config (copy to data/config.yaml)
 ├── requirements.txt         # Python dependencies
 ├── scripts/
+│   ├── config_loader.py    # Shared config loading (PROJECT_ROOT, load_config)
 │   ├── extract.py          # PDF → structured data (local)
 │   ├── sanitize.py         # Remove sensitive data
 │   ├── process.py          # LLM tax logic (Claude or local)
 │   ├── assemble.py         # Re-inject data & fill forms
 │   ├── orchestrate.py      # Run full pipeline
 │   └── prepare_knowledge.py # Extract IRS instructions from PDF
-├── data/
-│   ├── raw/                # Your original PDFs (gitignored)
+├── data/                    # Everything below is gitignored (single mount point)
+│   ├── config.yaml          # Operational config (seeded from config.yaml.example)
+│   ├── raw/                # Your original PDFs
 │   │   ├── 2024/
 │   │   │   ├── sources/    # Prior year W-2s, 1099s (optional)
 │   │   │   └── filed/      # Prior year filed return (for context)
@@ -114,14 +119,14 @@ tax-processor/
 │   │   └── 2024-filed.json
 │   ├── sanitized/          # Cleaned data for LLM
 │   ├── vault/              # Encrypted sensitive data
-│   └── output/             # Final filled forms
-├── tax-knowledge/          # Tax reference data (per year)
-│   └── 2025/
-│       ├── tax-tables.json
-│       ├── form-1040-fields.json
-│       └── form-1040-instructions.md
-└── templates/
-    └── blank-forms/        # Blank IRS forms for current year
+│   ├── output/             # Final filled forms
+│   ├── tax-knowledge/      # Tax reference data (per year)
+│   │   └── 2025/
+│   │       ├── tax-tables.json
+│   │       ├── form-1040-fields.json
+│   │       └── form-1040-instructions.md
+│   └── templates/
+│       └── blank-forms/    # User-provided blank IRS forms
 ```
 
 ### Document Organization
@@ -238,7 +243,7 @@ python scripts/process.py --input data/sanitized/2025.json \
 # 4. Assemble final forms
 python scripts/assemble.py --instructions data/instructions/2025.json \
     --vault data/vault/2025.age \
-    --templates templates/blank-forms \
+    --templates data/templates/blank-forms \
     --output data/output/2025
 ```
 
@@ -303,7 +308,7 @@ python scripts/prepare_knowledge.py --pdf ~/Downloads/i1040gi.pdf --form 1040 --
 This produces the following structure:
 
 ```
-tax-knowledge/
+data/tax-knowledge/
 └── 2025/
     ├── tax-tables.json             # Brackets, deductions, limits
     ├── form-1040-fields.json       # PDF field → line mappings
@@ -328,7 +333,7 @@ The knowledge base includes:
 python scripts/prepare_knowledge.py --pdf ~/Downloads/i1040gi-2026.pdf --form 1040 --year 2026 --backend claude
 
 # Option 2: Copy previous year and update values manually
-cp -r tax-knowledge/2025 tax-knowledge/2026
+cp -r data/tax-knowledge/2025 data/tax-knowledge/2026
 # Update values based on IRS Revenue Procedure announcements (Oct/Nov each year)
 ```
 

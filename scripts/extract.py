@@ -21,17 +21,11 @@ import fitz  # pymupdf
 import pytesseract
 from PIL import Image
 import io
-import yaml
 import requests
 
+from config_loader import load_config
+
 console = Console()
-
-
-def load_config() -> dict:
-    """Load configuration from config.yaml"""
-    config_path = Path(__file__).parent.parent / "config.yaml"
-    with open(config_path) as f:
-        return yaml.safe_load(f)
 
 
 def extract_text_from_pdf(pdf_path: Path, use_ocr: bool = True) -> str:

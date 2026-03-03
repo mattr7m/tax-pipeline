@@ -36,10 +36,10 @@ class TaxKnowledgeBase:
     
     def __init__(self, tax_year: int, knowledge_dir: Optional[Path] = None):
         self.tax_year = tax_year
-        
+
         if knowledge_dir is None:
-            # Default to tax-knowledge directory relative to scripts
-            knowledge_dir = Path(__file__).parent.parent / "tax-knowledge"
+            # Default to data/tax-knowledge relative to project root
+            knowledge_dir = Path(__file__).parent.parent / "data" / "tax-knowledge"
         
         self.knowledge_dir = knowledge_dir
         self.year_dir = knowledge_dir / str(tax_year)

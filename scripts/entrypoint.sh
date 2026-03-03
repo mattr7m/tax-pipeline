@@ -28,7 +28,12 @@ mkdir -p \
     data/sanitized \
     data/vault \
     data/instructions \
-    data/output/"$TAX_YEAR"
+    data/output/"$TAX_YEAR" \
+    data/templates/blank-forms \
+    data/tax-knowledge
+
+# Seed config from the example on first run
+[ ! -f data/config.yaml ] && cp config.yaml.example data/config.yaml
 
 # ---------------------------------------------------------------------------
 # Run inventory scan to generate dashboard
