@@ -18,16 +18,10 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
-import yaml
+
+from config_loader import load_config, PROJECT_ROOT
 
 console = Console()
-
-
-def load_config() -> dict:
-    """Load configuration from config.yaml"""
-    config_path = Path(__file__).parent.parent / "config.yaml"
-    with open(config_path) as f:
-        return yaml.safe_load(f)
 
 
 def check_prerequisites(backend: str = "claude", extraction_backend: str = "ollama"):
@@ -168,7 +162,7 @@ def main(
         sys.exit(1)
     
     config = load_config()
-    project_root = Path(__file__).parent.parent
+    project_root = PROJECT_ROOT
     
     # Set up paths with new directory structure
     raw_base = project_root / config["paths"]["raw_documents"]

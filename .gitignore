@@ -42,14 +42,7 @@ data/tmp/
 !data/**/.gitkeep
 
 # -----------------------------------------------------------------------------
-# TEMPLATES - SAFE TO COMMIT
-# -----------------------------------------------------------------------------
-# Blank IRS forms (no personal data)
-!templates/
-!templates/**
-
-# -----------------------------------------------------------------------------
-# TAX KNOWLEDGE BASE - GENERATED
+# TAX KNOWLEDGE BASE - GENERATED (now lives under data/)
 # -----------------------------------------------------------------------------
 # Reproducible via: python scripts/prepare_knowledge.py
 tax-knowledge/
@@ -163,6 +156,10 @@ age-key.txt
 config.local.yaml
 config.dev.yaml
 
+# Operational config at root (use data/config.yaml instead)
+config.yaml
+!config.yaml.example
+
 # Test outputs
 test_output/
 test_data/
@@ -174,6 +171,5 @@ tax-dashboard.html
 downloads/
 *.pdf
 
-# Exception: Keep sample/template PDFs if explicitly named
-!templates/blank-forms/*.pdf
+# Templates and blank forms now live under data/ (gitignored with everything else)
 

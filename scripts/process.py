@@ -22,20 +22,13 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
-import yaml
 import requests
 
 # Local imports
+from config_loader import load_config, PROJECT_ROOT
 from tax_knowledge import TaxKnowledgeBase, load_knowledge_for_processing
 
 console = Console()
-
-
-def load_config() -> dict:
-    """Load configuration from config.yaml"""
-    config_path = Path(__file__).parent.parent / "config.yaml"
-    with open(config_path) as f:
-        return yaml.safe_load(f)
 
 
 SYSTEM_PROMPT_BASE = """You are a tax preparation assistant. You help process tax data and determine:
@@ -501,7 +494,7 @@ def main(
     forms_needed = None
     
     if not no_knowledge:
-        knowledge_dir = Path(__file__).parent.parent / "tax-knowledge"
+        knowledge_dir = PROJECT_ROOT / config.get("paths", {}).get("tax_knowledge", "data/tax-knowledge")
         
         if backend == "local":
             console.print("\n[cyan]Loading tax knowledge base (required for local LLM)...[/cyan]")

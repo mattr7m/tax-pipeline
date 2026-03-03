@@ -12,6 +12,7 @@ A privacy-focused tax form processor that uses a hybrid local/cloud LLM pipeline
 # Setup
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+cp config.yaml.example data/config.yaml
 
 # Full pipeline (default: Ollama extraction + Claude processing)
 python scripts/orchestrate.py --year 2025
@@ -23,7 +24,7 @@ python scripts/orchestrate.py --year 2025 --backend local --extraction-backend l
 python scripts/extract.py --input data/raw/2025 --output data/extracted/2025.json --extraction-backend ollama
 python scripts/sanitize.py --input data/extracted/2025.json --output data/sanitized/2025.json --vault data/vault/2025.age
 python scripts/process.py --input data/sanitized/2025.json --output data/instructions/2025.json --backend claude
-python scripts/assemble.py --instructions data/instructions/2025.json --vault data/vault/2025.age --templates templates/blank-forms --output data/output/2025
+python scripts/assemble.py --instructions data/instructions/2025.json --vault data/vault/2025.age --templates data/templates/blank-forms --output data/output/2025
 
 # Prepare tax knowledge from IRS instruction PDFs
 python scripts/prepare_knowledge.py --pdf ~/Downloads/i1040gi.pdf --form 1040 --year 2025 --backend claude
@@ -46,7 +47,7 @@ The pipeline has 4 sequential steps, each a standalone CLI script (click-based) 
 
 ### Key design patterns
 
-- All scripts share a `load_config()` function reading from `config.yaml` at project root
+- All scripts share `load_config()` and `PROJECT_ROOT` from `scripts/config_loader.py`, which looks for `data/config.yaml` first, then falls back to `config.yaml` / `config.yaml.example`
 - LLM responses are parsed with a shared `parse_json_response()` that handles markdown code blocks
 - The `Sanitizer` class in `sanitize.py` maintains a vault dict and token counter; `decrypt_vault()` is duplicated in both `sanitize.py` and `assemble.py`
 - `tax_knowledge.py` provides `TaxKnowledgeBase` class with lazy-loading and `load_knowledge_for_processing()` convenience function
@@ -61,21 +62,21 @@ data/raw/{year}/*.pdf     → extract  → data/extracted/{year}.json
                           → assemble → data/output/{year}/ (filled PDFs + REVIEW.md)
 ```
 
-Everything under `data/` is gitignored. `templates/blank-forms/` holds blank IRS PDFs for form filling.
+Everything under `data/` is gitignored — this includes config, templates, tax knowledge, and all pipeline artifacts. A single volume mount at `data/` covers all persistent state for containers.
 
 ## Tax Knowledge Base
 
-`tax-knowledge/{year}/` provides current-year data critical for the local LLM backend:
+`data/tax-knowledge/{year}/` provides current-year data critical for the local LLM backend:
 - `tax-tables.json` — brackets, standard deductions, contribution limits, credit amounts
 - `form-{name}-fields.json` — PDF field ID → IRS line number mappings (e.g., `f1_25` → Line 1a)
 - `form-{name}-instructions.md` — line-by-line IRS guidance (generated via `prepare_knowledge.py`)
 - `tax-rules-summary.md` — key rules reference
 
-To add a new tax year: `cp -r tax-knowledge/2025 tax-knowledge/2026` and update values from IRS Revenue Procedure announcements.
+To add a new tax year: `cp -r data/tax-knowledge/2025 data/tax-knowledge/2026` and update values from IRS Revenue Procedure announcements.
 
 ## Configuration
 
-`config.yaml` controls: LLM backend settings (model names, URLs, timeouts, temperatures), OCR settings, sensitive data regex patterns (with replacement templates), and document type detection keywords. New document types or sensitive patterns are added here.
+`data/config.yaml` controls: LLM backend settings (model names, URLs, timeouts, temperatures), OCR settings, sensitive data regex patterns (with replacement templates), and document type detection keywords. New document types or sensitive patterns are added here. The tracked seed file is `config.yaml.example` at the project root; copy it to `data/config.yaml` for local dev (the container entrypoint does this automatically).
 
 ## Security Constraints
 

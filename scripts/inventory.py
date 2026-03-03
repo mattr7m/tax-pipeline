@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import click
 
+from config_loader import load_config, PROJECT_ROOT
 from dashboard import load_state, save_state, regenerate_html
 
 
@@ -78,7 +79,9 @@ def main(year: int):
     and generates tax-dashboard.html at the project root.
     """
     prior = year - 1
-    project_root = Path(__file__).parent.parent.resolve()
+    project_root = PROJECT_ROOT.resolve()
+    config = load_config()
+    tax_knowledge_rel = config.get("paths", {}).get("tax_knowledge", "data/tax-knowledge")
 
     click.echo(f"Tax Dashboard Inventory — {year} (prior: {prior})")
     click.echo(f"Project root: {project_root}\n")
@@ -110,7 +113,7 @@ def main(year: int):
     prior_raw_knowledge = scan_dir(project_root / f"data/raw/{prior}/knowledge")
     prior_raw_filed = scan_dir(project_root / f"data/raw/{prior}/filed")
     prior_tax_knowledge = scan_dir(
-        project_root / f"tax-knowledge/{prior}",
+        project_root / tax_knowledge_rel / str(prior),
         extensions=(".json", ".md"),
     )
 
@@ -136,7 +139,7 @@ def main(year: int):
 
     # Current year tax knowledge
     cur_tax_knowledge = scan_dir(
-        project_root / f"tax-knowledge/{year}",
+        project_root / tax_knowledge_rel / str(year),
         extensions=(".json", ".md"),
     )
 

@@ -28,7 +28,12 @@ mkdir -p \
     data/sanitized \
     data/vault \
     data/instructions \
-    data/output/"$TAX_YEAR"
+    data/output/"$TAX_YEAR" \
+    data/templates/blank-forms \
+    data/tax-knowledge
+
+# Seed config from the example on first run
+[ ! -f data/config.yaml ] && cp config.yaml.example data/config.yaml
 
 # ---------------------------------------------------------------------------
 # Run inventory scan to generate dashboard
@@ -43,11 +48,9 @@ DASHBOARD_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(16)
 export DASHBOARD_PASSWORD
 
 # ---------------------------------------------------------------------------
-# Start dashboard server in background
+# Print ready banner
 # ---------------------------------------------------------------------------
 DASHBOARD_PORT="${DASHBOARD_PORT:-8000}"
-echo "Starting dashboard server on port $DASHBOARD_PORT..."
-python3 scripts/serve_dashboard.py --host 0.0.0.0 --port "$DASHBOARD_PORT" --auth &
 
 echo ""
 echo "============================================"
@@ -58,21 +61,19 @@ echo "  Username:  admin"
 echo "  Password:  $DASHBOARD_PASSWORD"
 echo "============================================"
 echo ""
-echo "Commands:"
+echo "Commands (via podman exec):"
 echo "  python3 scripts/orchestrate.py --year $TAX_YEAR"
 echo "  python3 scripts/extract.py --help"
-echo "  python3 scripts/sanitize.py --help"
-echo "  python3 scripts/process.py --help"
-echo "  python3 scripts/assemble.py --help"
 echo "  python3 scripts/inventory.py --year $TAX_YEAR"
 echo ""
 
 # ---------------------------------------------------------------------------
-# If arguments were passed, run them instead of interactive shell
+# If arguments were passed, start server in background and exec the command.
+# Otherwise exec the server as the foreground process (keeps container alive).
 # ---------------------------------------------------------------------------
 if [ $# -gt 0 ]; then
+    python3 scripts/serve_dashboard.py --host 0.0.0.0 --port "$DASHBOARD_PORT" --auth &
     exec "$@"
 fi
 
-# Drop to interactive bash
-exec bash
+exec python3 scripts/serve_dashboard.py --host 0.0.0.0 --port "$DASHBOARD_PORT" --auth

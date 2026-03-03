@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from dashboard import (
+    _SENSITIVITY,
     _phase_instructions,
     _read_preview,
     _render_file_list,
@@ -380,6 +381,7 @@ class TestRenderPhaseCard:
             {"current_sources": []},
             [("Current Sources", "current_sources")],
             step_number=1,
+            phase_key="raw_input",
         )
         assert 'class="phase-card"' in result
         assert '<span class="step">1</span>' in result
@@ -395,6 +397,7 @@ class TestRenderPhaseCard:
             [],
             step_number=2,
             instructions_html='<div class="how-to-body"><p>Do stuff</p></div>',
+            phase_key="extracted_input",
         )
         assert '<details class="phase-how-to">' in result
         assert "Do stuff" in result
@@ -408,8 +411,58 @@ class TestRenderPhaseCard:
             [],
             step_number=2,
             instructions_html="",
+            phase_key="extracted_input",
         )
         assert "phase-how-to" not in result
+
+    def test_sensitivity_badge_red(self, tmp_path):
+        """Red sensitivity badge rendered for raw_input current_sources."""
+        result = _render_phase_card(
+            tmp_path,
+            "Raw Input",
+            {"current_sources": []},
+            [("Current Year Sources (2025)", "current_sources")],
+            step_number=1,
+            phase_key="raw_input",
+        )
+        assert 'class="sens sens-red"' in result
+        assert 'title="Contains sensitive PII"' in result
+
+    def test_sensitivity_badge_green(self, tmp_path):
+        """Green sensitivity badge rendered for knowledge sections."""
+        result = _render_phase_card(
+            tmp_path,
+            "Raw Input",
+            {"current_knowledge": []},
+            [("Current Year Tax Knowledge (2025)", "current_knowledge")],
+            step_number=1,
+            phase_key="raw_input",
+        )
+        assert 'class="sens sens-green"' in result
+        assert 'title="Public IRS data"' in result
+
+    def test_sensitivity_badge_yellow(self, tmp_path):
+        """Yellow sensitivity badge rendered for sanitized sections."""
+        result = _render_phase_card(
+            tmp_path,
+            "Sanitized Input",
+            {"prior_sources": []},
+            [("Prior Year Sources (2024)", "prior_sources")],
+            step_number=3,
+            phase_key="sanitized_input",
+        )
+        assert 'class="sens sens-yellow"' in result
+
+    def test_no_badge_without_phase_key(self, tmp_path):
+        """No sensitivity badge when phase_key is not provided."""
+        result = _render_phase_card(
+            tmp_path,
+            "Test",
+            {"current_sources": []},
+            [("Sources", "current_sources")],
+            step_number=1,
+        )
+        assert "sens" not in result
 
 
 class TestRegenerateHtml:

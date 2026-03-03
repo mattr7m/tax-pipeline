@@ -16,6 +16,32 @@ from pathlib import Path
 from typing import Optional
 
 
+_SENSITIVITY = {
+    ("raw_input", "prior_sources"): "red",
+    ("raw_input", "current_sources"): "red",
+    ("raw_input", "prior_knowledge"): "green",
+    ("raw_input", "current_knowledge"): "green",
+    ("raw_input", "prior_filed"): "red",
+    ("extracted_input", "prior_sources"): "red",
+    ("extracted_input", "current_sources"): "red",
+    ("extracted_input", "prior_knowledge"): "green",
+    ("extracted_input", "current_knowledge"): "green",
+    ("extracted_input", "prior_filed"): "red",
+    ("sanitized_input", "prior_sources"): "yellow",
+    ("sanitized_input", "current_sources"): "yellow",
+    ("sanitized_input", "prior_filed"): "yellow",
+    ("output", "current_instructions"): "yellow",
+    ("output", "current_filed"): "red",
+    ("output", "current_assembled"): "red",
+}
+
+_SENSITIVITY_TITLES = {
+    "red": "Contains sensitive PII",
+    "yellow": "PII redacted, financial data remains",
+    "green": "Public IRS data",
+}
+
+
 def load_state(project_root: Path) -> dict:
     """Read dashboard state from data/dashboard-state.json, or return empty default."""
     state_path = project_root / "data" / "dashboard-state.json"
@@ -276,6 +302,7 @@ def _render_phase_card(
     sections: list,
     step_number: int,
     instructions_html: str = "",
+    phase_key: str = "",
 ) -> str:
     """
     Render a single pipeline phase as a vertical card.
@@ -286,13 +313,19 @@ def _render_phase_card(
         sections: List of (label, category_key) tuples to render
         step_number: 1-based step index for the step indicator
         instructions_html: Optional collapsible instructions block
+        phase_key: Phase identifier for sensitivity lookup (e.g. "raw_input")
     """
     items = []
     for label, key in sections:
         entries = phase_dict.get(key, [])
         file_list = _render_file_list(project_root, entries)
+        badge = ""
+        level = _SENSITIVITY.get((phase_key, key))
+        if level:
+            tip = _SENSITIVITY_TITLES.get(level, "")
+            badge = f' <span class="sens sens-{level}" title="{tip}">\u25cf</span>'
         items.append(f'      <div class="category">\n'
-                     f'        <h3>{label}</h3>\n'
+                     f'        <h3>{label}{badge}</h3>\n'
                      f'        {file_list}\n'
                      f'      </div>')
 
@@ -328,7 +361,7 @@ def _render_table(project_root: Path, state: dict) -> str:
         (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
         (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=1, instructions_html=instr[1])
+    ], step_number=1, instructions_html=instr[1], phase_key="raw_input")
 
     ext_card = _render_phase_card(project_root, "Extracted Input", ext, [
         (f"Prior Year Sources ({prior})", "prior_sources"),
@@ -336,19 +369,19 @@ def _render_table(project_root: Path, state: dict) -> str:
         (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
         (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=2, instructions_html=instr[2])
+    ], step_number=2, instructions_html=instr[2], phase_key="extracted_input")
 
     san_card = _render_phase_card(project_root, "Sanitized Input", san, [
         (f"Prior Year Sources ({prior})", "prior_sources"),
         (f"Current Year Sources ({year})", "current_sources"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=3, instructions_html=instr[3])
+    ], step_number=3, instructions_html=instr[3], phase_key="sanitized_input")
 
     out_card = _render_phase_card(project_root, "Output", out, [
         (f"Current Year Instructions ({year})", "current_instructions"),
         (f"Current Year Filed ({year})", "current_filed"),
         (f"Current Year Assembled ({year})", "current_assembled"),
-    ], step_number=4, instructions_html=instr[4])
+    ], step_number=4, instructions_html=instr[4], phase_key="output")
 
     return f"""<div class="desktop-grid">
   <div class="grid-cell">{raw_card}</div>
@@ -382,7 +415,7 @@ def _render_cards(project_root: Path, state: dict) -> str:
         (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
         (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=1, instructions_html=instr[1]))
+    ], step_number=1, instructions_html=instr[1], phase_key="raw_input"))
 
     cards.append(_render_phase_card(project_root, "Extracted Input", ext, [
         (f"Prior Year Sources ({prior})", "prior_sources"),
@@ -390,19 +423,19 @@ def _render_cards(project_root: Path, state: dict) -> str:
         (f"Prior Year Tax Knowledge ({prior})", "prior_knowledge"),
         (f"Current Year Tax Knowledge ({year})", "current_knowledge"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=2, instructions_html=instr[2]))
+    ], step_number=2, instructions_html=instr[2], phase_key="extracted_input"))
 
     cards.append(_render_phase_card(project_root, "Sanitized Input", san, [
         (f"Prior Year Sources ({prior})", "prior_sources"),
         (f"Current Year Sources ({year})", "current_sources"),
         (f"Prior Year Filed ({prior})", "prior_filed"),
-    ], step_number=3, instructions_html=instr[3]))
+    ], step_number=3, instructions_html=instr[3], phase_key="sanitized_input"))
 
     cards.append(_render_phase_card(project_root, "Output", out, [
         (f"Current Year Instructions ({year})", "current_instructions"),
         (f"Current Year Filed ({year})", "current_filed"),
         (f"Current Year Assembled ({year})", "current_assembled"),
-    ], step_number=4, instructions_html=instr[4]))
+    ], step_number=4, instructions_html=instr[4], phase_key="output"))
 
     return "\n\n".join(cards)
 
@@ -474,6 +507,12 @@ def regenerate_html(project_root: Path) -> Path:
   .md-preview table {{ border-collapse: collapse; margin: 4px 0; font-size: 11px; }}
   .md-preview th, .md-preview td {{ border: 1px solid #ddd; padding: 3px 8px; }}
   .md-preview th {{ background: #eee; }}
+
+  /* Sensitivity badges */
+  .sens {{ font-size: 10px; margin-left: 4px; vertical-align: middle; }}
+  .sens-red {{ color: #c62828; }}
+  .sens-yellow {{ color: #f9a825; }}
+  .sens-green {{ color: #2e7d32; }}
 
   /* Shared: badge */
   .badge {{ display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; margin: 8px 0; }}
@@ -549,6 +588,9 @@ def regenerate_html(project_root: Path) -> Path:
   [data-theme="dark"] .md-preview th {{ background: #1a1a2e; }}
   [data-theme="dark"] .md-preview th, [data-theme="dark"] .md-preview td {{ border-color: #2a2a4a; }}
   [data-theme="dark"] .badge-complete {{ background: #1b5e20; color: #a5d6a7; }}
+  [data-theme="dark"] .sens-red {{ color: #ef5350; }}
+  [data-theme="dark"] .sens-yellow {{ color: #ffee58; }}
+  [data-theme="dark"] .sens-green {{ color: #66bb6a; }}
   [data-theme="dark"] .phase-how-to {{ border-color: #2a2a4a; }}
   [data-theme="dark"] .phase-how-to summary {{ color: #888; }}
   [data-theme="dark"] .phase-how-to pre {{ background: #0d1117; }}

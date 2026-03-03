@@ -15,20 +15,14 @@ from typing import Any
 import click
 from rich.console import Console
 from rich.table import Table
-import yaml
 
 # For encryption we use 'age' via subprocess
 # Pure Python alternative: pyage
 import subprocess
 
+from config_loader import load_config
+
 console = Console()
-
-
-def load_config() -> dict:
-    """Load configuration from config.yaml"""
-    config_path = Path(__file__).parent.parent / "config.yaml"
-    with open(config_path) as f:
-        return yaml.safe_load(f)
 
 
 class Sanitizer:
