@@ -20,6 +20,12 @@ Supports two LLM backends for the processing step:
 - **Claude API** (`--backend claude`): Fast, high quality, requires API key
 - **Local LLM** (`--backend local`): 100% offline, uses llama.cpp server
 
+## Dashboard
+
+A built-in web dashboard tracks files through each pipeline phase. Sensitivity badges indicate data classification at a glance: red for PII, yellow for redacted/financial, green for public IRS data.
+
+![Tax Pipeline Dashboard](tax-dashboard-mock.png)
+
 ## Prerequisites
 
 ### Local Tools
