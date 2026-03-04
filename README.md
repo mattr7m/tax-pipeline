@@ -106,7 +106,7 @@ tax-processor/
 │   ├── process.py          # LLM tax logic (Claude or local)
 │   ├── assemble.py         # Re-inject data & fill forms
 │   ├── orchestrate.py      # Run full pipeline
-│   └── prepare_knowledge.py # Extract IRS instructions from PDF
+│   └── prepare_knowledge.py # Generate tax knowledge from IRS PDFs
 ├── data/                    # Everything below is gitignored (single mount point)
 │   ├── config.yaml          # Operational config (seeded from config.yaml.example)
 │   ├── raw/                # Your original PDFs
@@ -301,14 +301,26 @@ using `prepare_knowledge.py`, which extracts structured data from IRS
 instruction PDFs:
 
 ```bash
-# Generate Form 1040 knowledge from IRS instructions PDF
-python scripts/prepare_knowledge.py --pdf ~/Downloads/i1040gi.pdf --form 1040 --year 2025 --backend claude
+# Generate all knowledge files at once (recommended)
+python scripts/prepare_knowledge.py all \
+  --instructions-pdf ~/Downloads/i1040gi.pdf \
+  --form-pdf data/templates/blank-forms/f1040.pdf \
+  --form 1040 --year 2025 --backend claude
 
-# Generate Schedule A knowledge
-python scripts/prepare_knowledge.py --pdf ~/Downloads/i1040sca.pdf --form schedule-a --year 2025 --backend claude
+# Or run individual generators:
+python scripts/prepare_knowledge.py instructions --pdf ~/Downloads/i1040gi.pdf --form 1040 --year 2025 --backend claude
+python scripts/prepare_knowledge.py tax-tables --pdf ~/Downloads/i1040gi.pdf --year 2025
+python scripts/prepare_knowledge.py form-fields --form-pdf data/templates/blank-forms/f1040.pdf --form 1040 --year 2025
+python scripts/prepare_knowledge.py rules-summary --pdf ~/Downloads/i1040gi.pdf --year 2025
+
+# Generate Schedule A instructions
+python scripts/prepare_knowledge.py instructions --pdf ~/Downloads/i1040sca.pdf --form schedule-a --year 2025 --backend claude
 
 # Use local LLM instead of Claude API
-python scripts/prepare_knowledge.py --pdf ~/Downloads/i1040gi.pdf --form 1040 --year 2025 --backend local
+python scripts/prepare_knowledge.py all \
+  --instructions-pdf ~/Downloads/i1040gi.pdf \
+  --form-pdf data/templates/blank-forms/f1040.pdf \
+  --form 1040 --year 2025 --backend local
 ```
 
 This produces the following structure:
@@ -336,7 +348,10 @@ The knowledge base includes:
 
 ```bash
 # Option 1: Generate fresh from IRS instruction PDFs (recommended)
-python scripts/prepare_knowledge.py --pdf ~/Downloads/i1040gi-2026.pdf --form 1040 --year 2026 --backend claude
+python scripts/prepare_knowledge.py all \
+  --instructions-pdf ~/Downloads/i1040gi-2026.pdf \
+  --form-pdf data/templates/blank-forms/f1040.pdf \
+  --form 1040 --year 2026 --backend claude
 
 # Option 2: Copy previous year and update values manually
 cp -r data/tax-knowledge/2025 data/tax-knowledge/2026
