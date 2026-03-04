@@ -27,7 +27,11 @@ python scripts/process.py --input data/sanitized/2025.json --output data/instruc
 python scripts/assemble.py --instructions data/instructions/2025.json --vault data/vault/2025.age --templates data/templates/blank-forms --output data/output/2025
 
 # Prepare tax knowledge from IRS instruction PDFs
-python scripts/prepare_knowledge.py --pdf ~/Downloads/i1040gi.pdf --form 1040 --year 2025 --backend claude
+python scripts/prepare_knowledge.py instructions --pdf ~/Downloads/i1040gi.pdf --form 1040 --year 2025 --backend claude
+python scripts/prepare_knowledge.py tax-tables --pdf ~/Downloads/i1040gi.pdf --year 2025
+python scripts/prepare_knowledge.py form-fields --form-pdf data/templates/blank-forms/f1040.pdf --form 1040 --year 2025
+python scripts/prepare_knowledge.py rules-summary --pdf ~/Downloads/i1040gi.pdf --year 2025
+python scripts/prepare_knowledge.py all --instructions-pdf ~/Downloads/i1040gi.pdf --form-pdf data/templates/blank-forms/f1040.pdf --form 1040 --year 2025
 
 # Test tax knowledge loading
 python scripts/tax_knowledge.py 2025

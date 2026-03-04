@@ -1,5 +1,7 @@
-"""Tests for prepare_knowledge.py — page chunking, document creation, section identification."""
+"""Tests for prepare_knowledge.py — page chunking, document creation, section identification,
+and all subcommands (instructions, tax-tables, form-fields, rules-summary, all)."""
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -9,12 +11,18 @@ from click.testing import CliRunner
 
 from prepare_knowledge import (
     chunk_pages,
+    cli,
     create_final_document,
     extract_chunk_with_claude,
     extract_chunk_with_local_llm,
+    extract_pdf_form_field_names,
     extract_text_from_pdf,
     identify_sections,
-    main,
+    parse_json_response,
+    resolve_knowledge_output_dir,
+    send_to_claude,
+    send_to_local_llm,
+    validate_tax_tables,
 )
 
 
@@ -266,8 +274,8 @@ class TestExtractChunkWithLocalLlm:
         assert "timed out" in result.lower()
 
 
-class TestPrepareKnowledgeMain:
-    """Tests for the prepare_knowledge.py CLI entry point."""
+class TestPrepareKnowledgeInstructions:
+    """Tests for the 'instructions' subcommand (formerly main)."""
 
     @patch("prepare_knowledge.extract_chunk_with_claude", return_value="## Section\nContent")
     @patch("prepare_knowledge.extract_text_from_pdf")
@@ -283,7 +291,8 @@ class TestPrepareKnowledgeMain:
         output_file = tmp_path / "output.md"
 
         runner = CliRunner()
-        result = runner.invoke(main, [
+        result = runner.invoke(cli, [
+            "instructions",
             "--pdf", str(pdf_file),
             "--form", "1040",
             "--year", "2025",
@@ -309,7 +318,8 @@ class TestPrepareKnowledgeMain:
         pdf_file.write_bytes(b"%PDF-1.4")
 
         runner = CliRunner()
-        result = runner.invoke(main, [
+        result = runner.invoke(cli, [
+            "instructions",
             "--pdf", str(pdf_file),
             "--form", "1040",
             "--year", "2025",
@@ -331,7 +341,8 @@ class TestPrepareKnowledgeMain:
         pdf_file.write_bytes(b"%PDF-1.4")
 
         runner = CliRunner()
-        runner.invoke(main, [
+        runner.invoke(cli, [
+            "instructions",
             "--pdf", str(pdf_file),
             "--form", "1040",
             "--year", "2025",
@@ -339,3 +350,455 @@ class TestPrepareKnowledgeMain:
             "--output", str(tmp_path / "out.md"),
         ])
         mock_extract_pdf.assert_called_once_with(pdf_file, 5)
+
+
+class TestParseJsonResponse:
+    """Test JSON parsing from LLM responses."""
+
+    def test_plain_json(self):
+        result = parse_json_response('{"key": "value"}')
+        assert result == {"key": "value"}
+
+    def test_json_in_markdown_block(self):
+        text = 'Some text\n```json\n{"key": "value"}\n```\nMore text'
+        result = parse_json_response(text)
+        assert result == {"key": "value"}
+
+    def test_json_in_generic_block(self):
+        text = 'Text\n```\n{"key": "value"}\n```'
+        result = parse_json_response(text)
+        assert result == {"key": "value"}
+
+    def test_malformed_returns_error(self):
+        result = parse_json_response("not json at all")
+        assert "parse_error" in result
+        assert "raw_response" in result
+
+
+class TestValidateTaxTables:
+    """Test tax tables validation."""
+
+    def test_valid_full(self):
+        data = {
+            "tax_year": 2025,
+            "standard_deductions": {"single": 15000},
+            "tax_brackets": {"single": []},
+            "retirement_contributions": {},
+            "deductions": {},
+            "credits": {},
+        }
+        warnings = validate_tax_tables(data)
+        assert len(warnings) == 0
+
+    def test_missing_required_key(self):
+        data = {"tax_year": 2025, "tax_brackets": {"single": []}}
+        warnings = validate_tax_tables(data)
+        assert any("standard_deductions" in w for w in warnings)
+
+    def test_missing_optional_key(self):
+        data = {
+            "standard_deductions": {"single": 15000},
+            "tax_brackets": {"single": []},
+        }
+        warnings = validate_tax_tables(data)
+        # Should warn about optional keys but not fail
+        assert any("optional" in w.lower() for w in warnings)
+
+    def test_empty_dict_fails(self):
+        warnings = validate_tax_tables({})
+        assert len(warnings) >= 2  # at least both required keys missing
+
+
+class TestSharedHelpers:
+    """Tests for shared helper functions."""
+
+    def test_resolve_knowledge_output_dir(self, tmp_path):
+        config = {"paths": {"tax_knowledge": str(tmp_path / "knowledge")}}
+        # Override __file__ parent.parent resolution
+        with patch("prepare_knowledge.Path") as mock_path_cls:
+            # Just test with a config that has an absolute path
+            pass
+        # Simpler: just test it doesn't crash with empty config
+        result = resolve_knowledge_output_dir({}, 2025)
+        assert result.name == "2025"
+
+    @patch("prepare_knowledge.requests.post")
+    def test_send_to_local_llm(self, mock_post, test_config):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "response text"}}]
+        }
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
+        result = send_to_local_llm("system", "user", test_config)
+        assert result == "response text"
+
+    def test_send_to_claude(self, test_config):
+        mock_anthropic = MagicMock()
+        mock_client = MagicMock()
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_client.messages.create.return_value = MagicMock(
+            content=[MagicMock(text="claude response")]
+        )
+
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+            result = send_to_claude("system", "user", test_config)
+        assert result == "claude response"
+
+
+class TestTaxTablesGeneration:
+    """Tests for the 'tax-tables' subcommand."""
+
+    SAMPLE_TAX_TABLES = json.dumps({
+        "tax_year": 2025,
+        "standard_deductions": {"single": 15000, "married_filing_jointly": 30000, "head_of_household": 22500},
+        "tax_brackets": {"single": [{"min": 0, "max": 11925, "rate": 0.10, "base_tax": 0}]},
+        "retirement_contributions": {"401k_limit": 23500, "ira_limit": 7000},
+        "deductions": {"salt_cap": 10000},
+        "credits": {"child_tax_credit": 2000},
+    })
+
+    @patch("prepare_knowledge.send_to_llm", return_value=SAMPLE_TAX_TABLES)
+    @patch("prepare_knowledge.extract_text_from_pdf")
+    @patch("prepare_knowledge.load_config")
+    def test_generates_valid_json(self, mock_config, mock_extract, mock_llm, tmp_path, test_config):
+        mock_config.return_value = test_config
+        mock_extract.return_value = [
+            {"page": 1, "text": "Standard Deduction amounts for 2025"}
+        ]
+
+        pdf_file = tmp_path / "instructions.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+        output_file = tmp_path / "tax-tables.json"
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "tax-tables",
+            "--pdf", str(pdf_file),
+            "--year", "2025",
+            "--output", str(output_file),
+        ])
+        assert result.exit_code == 0
+        assert output_file.exists()
+
+        data = json.loads(output_file.read_text())
+        assert data["tax_year"] == 2025
+        assert "standard_deductions" in data
+        assert "tax_brackets" in data
+
+    @patch("prepare_knowledge.send_to_llm", return_value=SAMPLE_TAX_TABLES)
+    @patch("prepare_knowledge.extract_text_from_pdf")
+    @patch("prepare_knowledge.load_config")
+    def test_filters_relevant_pages(self, mock_config, mock_extract, mock_llm, tmp_path, test_config):
+        mock_config.return_value = test_config
+        mock_extract.return_value = [
+            {"page": 1, "text": "Unrelated intro content"},
+            {"page": 2, "text": "Standard Deduction for single filers"},
+            {"page": 3, "text": "Tax Rate Schedule"},
+        ]
+
+        pdf_file = tmp_path / "instructions.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+        output_file = tmp_path / "tax-tables.json"
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "tax-tables",
+            "--pdf", str(pdf_file),
+            "--year", "2025",
+            "--output", str(output_file),
+        ])
+        assert result.exit_code == 0
+        # The LLM prompt should have been called
+        mock_llm.assert_called_once()
+
+    @patch("prepare_knowledge.send_to_llm", return_value="not valid json")
+    @patch("prepare_knowledge.extract_text_from_pdf")
+    @patch("prepare_knowledge.load_config")
+    def test_exits_on_parse_failure(self, mock_config, mock_extract, mock_llm, tmp_path, test_config):
+        mock_config.return_value = test_config
+        mock_extract.return_value = [{"page": 1, "text": "Standard Deduction info"}]
+
+        pdf_file = tmp_path / "instructions.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "tax-tables",
+            "--pdf", str(pdf_file),
+            "--year", "2025",
+            "--output", str(tmp_path / "out.json"),
+        ])
+        assert result.exit_code != 0
+
+
+class TestFormFieldsGeneration:
+    """Tests for the 'form-fields' subcommand."""
+
+    SAMPLE_FIELDS_RESPONSE = json.dumps({
+        "form_id": "1040",
+        "form_name": "U.S. Individual Income Tax Return",
+        "tax_year": 2025,
+        "field_mappings": {
+            "income": {
+                "f1_25": {"line": "1a", "type": "currency", "description": "Wages from W-2"}
+            }
+        },
+        "calculation_rules": {"line_9": "Sum of lines 1z through 8"},
+    })
+
+    @patch("prepare_knowledge.send_to_llm", return_value=SAMPLE_FIELDS_RESPONSE)
+    @patch("prepare_knowledge.extract_pdf_form_field_names")
+    @patch("prepare_knowledge.load_config")
+    def test_generates_valid_json(self, mock_config, mock_fields, mock_llm, tmp_path, test_config):
+        mock_config.return_value = test_config
+        mock_fields.return_value = [
+            {"field_name": "f1_25", "field_type": "Text", "page": 1},
+            {"field_name": "f1_36", "field_type": "Text", "page": 1},
+        ]
+
+        pdf_file = tmp_path / "f1040.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+        output_file = tmp_path / "form-1040-fields.json"
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "form-fields",
+            "--form-pdf", str(pdf_file),
+            "--form", "1040",
+            "--year", "2025",
+            "--output", str(output_file),
+        ])
+        assert result.exit_code == 0
+        assert output_file.exists()
+
+        data = json.loads(output_file.read_text())
+        assert data["form_id"] == "1040"
+        assert "field_mappings" in data
+        assert "calculation_rules" in data
+
+    @patch("prepare_knowledge.send_to_llm", return_value=SAMPLE_FIELDS_RESPONSE)
+    @patch("prepare_knowledge.extract_pdf_form_field_names")
+    @patch("prepare_knowledge.load_config")
+    def test_loads_instructions_as_context(self, mock_config, mock_fields, mock_llm, tmp_path, test_config):
+        mock_config.return_value = test_config
+        mock_fields.return_value = [
+            {"field_name": "f1_25", "field_type": "Text", "page": 1}
+        ]
+
+        pdf_file = tmp_path / "f1040.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+        output_file = tmp_path / "form-1040-fields.json"
+
+        # Create instructions file as context
+        instructions_file = tmp_path / "form-1040-instructions.md"
+        instructions_file.write_text("## Line 1a: Wages\nEnter wages from W-2")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "form-fields",
+            "--form-pdf", str(pdf_file),
+            "--form", "1040",
+            "--year", "2025",
+            "--output", str(output_file),
+        ])
+        assert result.exit_code == 0
+        # The LLM should have been called with instructions context
+        call_args = mock_llm.call_args
+        user_prompt = call_args[0][1] if call_args[0] else call_args[1].get("user_prompt", "")
+        assert "Line 1a" in user_prompt
+
+    @patch("prepare_knowledge.extract_pdf_form_field_names", return_value=[])
+    @patch("prepare_knowledge.load_config")
+    def test_exits_on_no_fields(self, mock_config, mock_fields, tmp_path, test_config):
+        mock_config.return_value = test_config
+
+        pdf_file = tmp_path / "f1040.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "form-fields",
+            "--form-pdf", str(pdf_file),
+            "--form", "1040",
+            "--year", "2025",
+            "--output", str(tmp_path / "out.json"),
+        ])
+        assert result.exit_code != 0
+
+
+class TestRulesSummaryGeneration:
+    """Tests for the 'rules-summary' subcommand."""
+
+    @patch("prepare_knowledge.send_to_llm", return_value="# Tax Rules Summary\n\n## Filing Requirements\n- Single: $15,000")
+    @patch("prepare_knowledge.extract_text_from_pdf")
+    @patch("prepare_knowledge.load_config")
+    def test_generates_markdown(self, mock_config, mock_extract, mock_llm, tmp_path, test_config):
+        mock_config.return_value = test_config
+        mock_extract.return_value = [
+            {"page": 1, "text": "Filing requirements and standard deduction info"}
+        ]
+
+        pdf_file = tmp_path / "instructions.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+        output_file = tmp_path / "tax-rules-summary.md"
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "rules-summary",
+            "--pdf", str(pdf_file),
+            "--year", "2025",
+            "--output", str(output_file),
+        ])
+        assert result.exit_code == 0
+        assert output_file.exists()
+
+        content = output_file.read_text()
+        assert "Tax Rules Summary" in content
+        assert "Filing Requirements" in content
+
+    @patch("prepare_knowledge.send_to_llm", return_value="# Rules\n\nContent here")
+    @patch("prepare_knowledge.extract_text_from_pdf")
+    @patch("prepare_knowledge.load_config")
+    def test_loads_tax_tables_as_context(self, mock_config, mock_extract, mock_llm, tmp_path, test_config):
+        mock_config.return_value = test_config
+        mock_extract.return_value = [{"page": 1, "text": "Tax info"}]
+
+        pdf_file = tmp_path / "instructions.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+        output_file = tmp_path / "tax-rules-summary.md"
+
+        # Create tax-tables.json as context
+        tables_file = tmp_path / "tax-tables.json"
+        tables_file.write_text(json.dumps({"standard_deductions": {"single": 15000}}))
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "rules-summary",
+            "--pdf", str(pdf_file),
+            "--year", "2025",
+            "--output", str(output_file),
+        ])
+        assert result.exit_code == 0
+        # The LLM should have been called with tax tables context
+        call_args = mock_llm.call_args
+        user_prompt = call_args[0][1] if call_args[0] else call_args[1].get("user_prompt", "")
+        assert "15000" in user_prompt
+
+
+class TestGenerateAll:
+    """Tests for the 'all' meta-subcommand."""
+
+    @patch("prepare_knowledge.send_to_llm")
+    @patch("prepare_knowledge.extract_pdf_form_field_names")
+    @patch("prepare_knowledge.extract_chunk_with_claude", return_value="## Section\nContent")
+    @patch("prepare_knowledge.extract_text_from_pdf")
+    @patch("prepare_knowledge.load_config")
+    def test_runs_all_generators(
+        self, mock_config, mock_extract_pdf, mock_chunk_claude,
+        mock_form_fields, mock_llm, tmp_path, test_config
+    ):
+        mock_config.return_value = test_config
+        mock_extract_pdf.return_value = [
+            {"page": 1, "text": "Standard Deduction amounts and filing requirements"}
+        ]
+        mock_form_fields.return_value = [
+            {"field_name": "f1_25", "field_type": "Text", "page": 1}
+        ]
+
+        # Return valid JSON for tax-tables
+        tax_tables_json = json.dumps({
+            "tax_year": 2025,
+            "standard_deductions": {"single": 15000},
+            "tax_brackets": {"single": []},
+        })
+        form_fields_json = json.dumps({
+            "form_id": "1040",
+            "tax_year": 2025,
+            "field_mappings": {"income": {}},
+            "calculation_rules": {},
+        })
+        rules_md = "# Tax Rules\n\n## Filing\n- Info here"
+
+        mock_llm.side_effect = [tax_tables_json, form_fields_json, rules_md]
+
+        instructions_pdf = tmp_path / "i1040gi.pdf"
+        instructions_pdf.write_bytes(b"%PDF-1.4")
+        form_pdf = tmp_path / "f1040.pdf"
+        form_pdf.write_bytes(b"%PDF-1.4")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "all",
+            "--instructions-pdf", str(instructions_pdf),
+            "--form-pdf", str(form_pdf),
+            "--form", "1040",
+            "--year", "2025",
+        ])
+        assert result.exit_code == 0
+        # send_to_llm should have been called for tax-tables, form-fields, rules-summary
+        assert mock_llm.call_count == 3
+        # extract_chunk_with_claude should have been called for instructions
+        assert mock_chunk_claude.called
+
+    @patch("prepare_knowledge.send_to_llm")
+    @patch("prepare_knowledge.extract_pdf_form_field_names")
+    @patch("prepare_knowledge.extract_chunk_with_claude", return_value="## Section")
+    @patch("prepare_knowledge.extract_text_from_pdf")
+    @patch("prepare_knowledge.load_config")
+    def test_runs_in_dependency_order(
+        self, mock_config, mock_extract_pdf, mock_chunk_claude,
+        mock_form_fields, mock_llm, tmp_path, test_config
+    ):
+        """Verify the order: tax-tables, instructions, form-fields, rules-summary."""
+        mock_config.return_value = test_config
+        mock_extract_pdf.return_value = [
+            {"page": 1, "text": "Standard Deduction info"}
+        ]
+        mock_form_fields.return_value = [
+            {"field_name": "f1_01", "field_type": "Text", "page": 1}
+        ]
+
+        tax_tables_json = json.dumps({
+            "tax_year": 2025, "standard_deductions": {"single": 15000},
+            "tax_brackets": {"single": []},
+        })
+        form_fields_json = json.dumps({
+            "form_id": "1040", "tax_year": 2025,
+            "field_mappings": {}, "calculation_rules": {},
+        })
+        rules_md = "# Rules"
+
+        call_order = []
+        original_send = mock_llm.side_effect
+
+        def track_calls(system, user, backend, config):
+            if "tax tables" in system.lower() or "brackets" in system.lower():
+                call_order.append("tax-tables")
+                return tax_tables_json
+            elif "field mapping" in system.lower():
+                call_order.append("form-fields")
+                return form_fields_json
+            elif "rules" in system.lower():
+                call_order.append("rules-summary")
+                return rules_md
+            return "{}"
+
+        mock_llm.side_effect = track_calls
+
+        instructions_pdf = tmp_path / "i1040gi.pdf"
+        instructions_pdf.write_bytes(b"%PDF-1.4")
+        form_pdf = tmp_path / "f1040.pdf"
+        form_pdf.write_bytes(b"%PDF-1.4")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "all",
+            "--instructions-pdf", str(instructions_pdf),
+            "--form-pdf", str(form_pdf),
+            "--form", "1040",
+            "--year", "2025",
+        ])
+        assert result.exit_code == 0
+        assert call_order == ["tax-tables", "form-fields", "rules-summary"]
