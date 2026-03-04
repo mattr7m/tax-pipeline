@@ -92,10 +92,10 @@ def main(year: int):
     dirs_to_create = [
         f"data/raw/{year}/sources",
         f"data/raw/{year}/filed",
-        f"data/raw/{year}/knowledge",
         f"data/raw/{prior}/sources",
         f"data/raw/{prior}/filed",
-        f"data/raw/{prior}/knowledge",
+        f"{tax_knowledge_rel}/{year}",
+        f"{tax_knowledge_rel}/{prior}",
         "data/extracted",
         "data/sanitized",
         "data/vault",
@@ -110,38 +110,32 @@ def main(year: int):
     # 2. Scan prior year directories
     # -------------------------------------------------------------------
     prior_raw_sources = scan_dir(project_root / f"data/raw/{prior}/sources")
-    prior_raw_knowledge = scan_dir(project_root / f"data/raw/{prior}/knowledge")
     prior_raw_filed = scan_dir(project_root / f"data/raw/{prior}/filed")
-    prior_tax_knowledge = scan_dir(
-        project_root / tax_knowledge_rel / str(prior),
-        extensions=(".json", ".md"),
-    )
+
+    # Tax knowledge lives in data/tax-knowledge/{year}/.
+    # Raw knowledge = IRS instruction PDFs; processed = .json/.md outputs.
+    tk_prior = project_root / tax_knowledge_rel / str(prior)
+    tk_current = project_root / tax_knowledge_rel / str(year)
+
+    prior_raw_knowledge = scan_dir(tk_prior, extensions=(".pdf",))
+    prior_tax_knowledge = scan_dir(tk_prior, extensions=(".json", ".md"))
 
     # -------------------------------------------------------------------
     # 3. Scan current year directories & merge with placeholders
     # -------------------------------------------------------------------
     cur_raw_sources_actual = scan_dir(project_root / f"data/raw/{year}/sources")
-    cur_raw_knowledge_actual = scan_dir(project_root / f"data/raw/{year}/knowledge")
 
     cur_sources_placeholders = placeholder_from(
         prior_raw_sources, f"data/raw/{year}/sources"
-    )
-    cur_knowledge_placeholders = placeholder_from(
-        prior_raw_knowledge, f"data/raw/{year}/knowledge"
     )
 
     cur_raw_sources = merge_placeholders_with_actual(
         cur_sources_placeholders, cur_raw_sources_actual
     )
-    cur_raw_knowledge = merge_placeholders_with_actual(
-        cur_knowledge_placeholders, cur_raw_knowledge_actual
-    )
 
-    # Current year tax knowledge
-    cur_tax_knowledge = scan_dir(
-        project_root / tax_knowledge_rel / str(year),
-        extensions=(".json", ".md"),
-    )
+    # Current year knowledge (raw PDFs + processed .json/.md)
+    cur_raw_knowledge = scan_dir(tk_current, extensions=(".pdf",))
+    cur_tax_knowledge = scan_dir(tk_current, extensions=(".json", ".md"))
 
     # -------------------------------------------------------------------
     # 4. Build downstream placeholders
@@ -274,9 +268,10 @@ def main(year: int):
 
     cur_src_found, cur_src_total = count_status(cur_raw_sources)
     cur_know_found, cur_know_total = count_status(cur_raw_knowledge)
+    cur_tk_found, cur_tk_total = count_status(cur_tax_knowledge)
 
     click.echo(f"\nCurrent year sources:   {cur_src_found}/{cur_src_total} found")
-    click.echo(f"Current year knowledge: {cur_know_found}/{cur_know_total} found")
+    click.echo(f"Current year knowledge: {cur_know_found}/{cur_know_total} IRS PDFs, {cur_tk_found}/{cur_tk_total} processed")
     click.echo("\nDone.")
 
 
