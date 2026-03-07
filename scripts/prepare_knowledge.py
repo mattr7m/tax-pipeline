@@ -158,14 +158,17 @@ def send_to_llm(system_prompt: str, user_prompt: str, backend: str, config: dict
 def update_dashboard(output_path, tax_year: int):
     """Non-critical dashboard update after generating a knowledge file."""
     try:
-        from dashboard import update_phase, regenerate_html as _regen_html
+        from dashboard import update_phase, regenerate_html as _regen_html, load_state
         project_root = Path(__file__).parent.parent
         knowledge_dir_name = Path(output_path).parent.name
         try:
             knowledge_year = int(knowledge_dir_name)
         except ValueError:
             knowledge_year = tax_year
-        category = "current_knowledge" if knowledge_year == tax_year else "prior_knowledge"
+        # Use the dashboard's configured year to determine current vs prior
+        state = load_state(project_root)
+        dashboard_year = state.get("year") or tax_year
+        category = "current_knowledge" if knowledge_year == dashboard_year else "prior_knowledge"
         update_phase(project_root, "extracted_input", category, [output_path])
         _regen_html(project_root)
     except Exception:
