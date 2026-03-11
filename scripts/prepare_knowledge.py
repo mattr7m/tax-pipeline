@@ -88,7 +88,7 @@ def parse_json_response(response_text: str) -> dict:
         return {"raw_response": response_text, "parse_error": str(e)}
 
 
-def send_to_claude(system_prompt: str, user_prompt: str, config: dict) -> str:
+def send_to_claude(system_prompt: str, user_prompt: str, config: dict, max_tokens: Optional[int] = None) -> str:
     """Send a prompt to Claude API and return the response text."""
     try:
         import anthropic
@@ -102,14 +102,14 @@ def send_to_claude(system_prompt: str, user_prompt: str, config: dict) -> str:
 
     message = client.messages.create(
         model=api_config.get("model", "claude-sonnet-4-20250514"),
-        max_tokens=api_config.get("max_tokens", 8192),
+        max_tokens=max_tokens or api_config.get("max_tokens", 8192),
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
     )
     return message.content[0].text
 
 
-def send_to_local_llm(system_prompt: str, user_prompt: str, config: dict) -> str:
+def send_to_local_llm(system_prompt: str, user_prompt: str, config: dict, max_tokens: Optional[int] = None) -> str:
     """Send a prompt to local LLM server and return the response text."""
     llm_config = config.get("local_llm_server", {})
     base_url = llm_config.get("base_url", "http://localhost:8080/v1")
@@ -125,7 +125,7 @@ def send_to_local_llm(system_prompt: str, user_prompt: str, config: dict) -> str
                     {"role": "user", "content": user_prompt},
                 ],
                 "temperature": 0.1,
-                "max_tokens": llm_config.get("max_tokens", 8192),
+                "max_tokens": max_tokens or llm_config.get("max_tokens", 8192),
             },
             timeout=timeout,
         )
@@ -147,12 +147,12 @@ def send_to_local_llm(system_prompt: str, user_prompt: str, config: dict) -> str
         return str(result)
 
 
-def send_to_llm(system_prompt: str, user_prompt: str, backend: str, config: dict) -> str:
+def send_to_llm(system_prompt: str, user_prompt: str, backend: str, config: dict, max_tokens: Optional[int] = None) -> str:
     """Route a prompt to the selected backend."""
     if backend == "claude":
-        return send_to_claude(system_prompt, user_prompt, config)
+        return send_to_claude(system_prompt, user_prompt, config, max_tokens=max_tokens)
     else:
-        return send_to_local_llm(system_prompt, user_prompt, config)
+        return send_to_local_llm(system_prompt, user_prompt, config, max_tokens=max_tokens)
 
 
 def update_dashboard(output_path, tax_year: int):
@@ -882,8 +882,10 @@ PDF FORM FIELDS:
 
 Output the JSON object:"""
 
-    console.print("[cyan]Sending to LLM for mapping...[/cyan]")
-    response_text = send_to_llm(FORM_FIELDS_SYSTEM_PROMPT, user_prompt, backend, config)
+    # Each field mapping produces ~100 tokens of JSON output; scale max_tokens accordingly
+    estimated_tokens = max(16384, len(fields) * 120)
+    console.print(f"[cyan]Sending to LLM for mapping (max_tokens={estimated_tokens})...[/cyan]")
+    response_text = send_to_llm(FORM_FIELDS_SYSTEM_PROMPT, user_prompt, backend, config, max_tokens=estimated_tokens)
     data = parse_json_response(response_text)
 
     if "parse_error" in data:
