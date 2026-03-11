@@ -100,13 +100,29 @@ def send_to_claude(system_prompt: str, user_prompt: str, config: dict, max_token
     api_config = config.get("claude_api", {})
     client = anthropic.Anthropic()
 
-    message = client.messages.create(
-        model=api_config.get("model", "claude-sonnet-4-20250514"),
-        max_tokens=max_tokens or api_config.get("max_tokens", 8192),
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
-    return message.content[0].text
+    resolved_max_tokens = max_tokens or api_config.get("max_tokens", 8192)
+    model = api_config.get("model", "claude-sonnet-4-20250514")
+
+    # Use streaming for large responses to avoid SDK timeout limits
+    if resolved_max_tokens > 8192:
+        response_text = ""
+        with client.messages.stream(
+            model=model,
+            max_tokens=resolved_max_tokens,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        ) as stream:
+            for text in stream.text_stream:
+                response_text += text
+        return response_text
+    else:
+        message = client.messages.create(
+            model=model,
+            max_tokens=resolved_max_tokens,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        return message.content[0].text
 
 
 def send_to_local_llm(system_prompt: str, user_prompt: str, config: dict, max_tokens: Optional[int] = None) -> str:
