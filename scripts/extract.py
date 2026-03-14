@@ -76,6 +76,7 @@ def detect_document_type(text: str, config: dict) -> tuple[str, float]:
     text_lower = text.lower()
     
     for doc_type, info in doc_types.items():
+        doc_type = str(doc_type)  # YAML parses bare numeric keys (e.g. 1098) as int
         keywords = info.get("keywords", [])
         matches = sum(1 for kw in keywords if kw.lower() in text_lower)
         confidence = matches / len(keywords) if keywords else 0

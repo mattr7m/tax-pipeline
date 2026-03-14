@@ -81,9 +81,9 @@ document_types:
   1099_div:
     keywords: ["1099-DIV", "Dividends and Distributions"]
     fields: ["ordinary_dividends", "qualified_dividends", "capital_gain_distributions"]
-  1098:
+  "1098":
     keywords: ["1098", "Mortgage Interest Statement"]
     fields: ["mortgage_interest", "points_paid", "property_taxes"]
-  1040:
+  "1040":
     keywords: ["Form 1040", "U.S. Individual Income Tax Return"]
     fields: ["filing_status", "dependents", "total_income", "agi", "taxable_income"]
