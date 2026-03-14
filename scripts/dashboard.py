@@ -271,7 +271,7 @@ def _phase_instructions(year, prior) -> dict:
             "<p>Extract structured data from PDFs:</p>"
             f"<pre>python scripts/extract.py \\\n"
             f"  --input data/raw/{year} \\\n"
-            f"  --output data/extracted/{year}.json \\\n"
+            f"  --output data/extracted/{year}-sources.json \\\n"
             f"  --extraction-backend ollama</pre>"
             f"<p>Extract prior year filed return:</p>"
             f"<pre>python scripts/extract.py \\\n"
@@ -284,8 +284,8 @@ def _phase_instructions(year, prior) -> dict:
             '<div class="how-to-body">'
             "<p>Sanitize extracted data (removes SSNs, account numbers):</p>"
             f"<pre>python scripts/sanitize.py \\\n"
-            f"  --input data/extracted/{year}.json \\\n"
-            f"  --output data/sanitized/{year}.json \\\n"
+            f"  --input data/extracted/{year}-sources.json \\\n"
+            f"  --output data/sanitized/{year}-sources.json \\\n"
             f"  --vault data/vault/{year}.age</pre>"
             "</div>"
         ),
@@ -293,7 +293,7 @@ def _phase_instructions(year, prior) -> dict:
             '<div class="how-to-body">'
             "<p>Process with LLM for tax logic and form mapping:</p>"
             f"<pre>python scripts/process.py \\\n"
-            f"  --input data/sanitized/{year}.json \\\n"
+            f"  --input data/sanitized/{year}-sources.json \\\n"
             f"  --output data/instructions/{year}.json \\\n"
             f"  --backend claude</pre>"
             "<p>Assemble final filled forms:</p>"
