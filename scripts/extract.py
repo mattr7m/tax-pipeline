@@ -28,6 +28,28 @@ from config_loader import load_config
 console = Console()
 
 
+def _dashboard_category(output_file: Path, document_role: str) -> str:
+    """Determine dashboard category from output filename and document role.
+
+    Parses the year from filenames like '2024-sources.json' and compares
+    to the current calendar year to decide prior vs current.
+    """
+    import re
+    from datetime import date
+
+    if document_role == "filed_return":
+        return "prior_filed"
+
+    m = re.match(r"(\d{4})", output_file.name)
+    if m:
+        file_year = int(m.group(1))
+        current_year = date.today().year
+        if file_year < current_year:
+            return "prior_sources"
+
+    return "current_sources"
+
+
 def extract_text_from_pdf(pdf_path: Path, use_ocr: bool = True) -> str:
     """
     Extract text from PDF, using OCR if needed.
@@ -361,7 +383,7 @@ def process_directory(
     try:
         from dashboard import update_phase, regenerate_html
         project_root = Path(__file__).parent.parent
-        category = "prior_filed" if document_role == "filed_return" else "current_sources"
+        category = _dashboard_category(output_file, document_role)
         update_phase(project_root, "extracted_input", category, [output_file])
         regenerate_html(project_root)
     except Exception:
@@ -550,7 +572,7 @@ def main(input_path: str, output_path: str, prior_year_path: Optional[str], extr
         try:
             from dashboard import update_phase, regenerate_html
             project_root = Path(__file__).parent.parent
-            category = "prior_filed" if document_role == "filed_return" else "current_sources"
+            category = _dashboard_category(output_path, document_role)
             update_phase(project_root, "extracted_input", category, [output_path])
             regenerate_html(project_root)
         except Exception:
