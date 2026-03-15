@@ -66,24 +66,29 @@ def extract_text_from_pdf(pdf_path: Path, use_ocr: bool = True) -> str:
 def detect_document_type(text: str, config: dict) -> tuple[str, float]:
     """
     Detect the type of tax document based on keywords.
-    
+
     Returns:
         Tuple of (document_type, confidence)
     """
     doc_types = config.get("document_types", {})
-    
+    min_confidence = config.get("detection", {}).get("min_confidence", 0.4)
+
     best_match = ("unknown", 0.0)
     text_lower = text.lower()
-    
+
     for doc_type, info in doc_types.items():
         doc_type = str(doc_type)  # YAML parses bare numeric keys (e.g. 1098) as int
         keywords = info.get("keywords", [])
         matches = sum(1 for kw in keywords if kw.lower() in text_lower)
         confidence = matches / len(keywords) if keywords else 0
-        
+
         if confidence > best_match[1]:
             best_match = (doc_type, confidence)
-    
+
+    # If below threshold, fall back to unknown so the LLM can classify
+    if best_match[1] < min_confidence:
+        best_match = ("unknown", best_match[1])
+
     return best_match
 
 
@@ -96,11 +101,21 @@ def build_extraction_prompt(
     """Build the extraction prompt for the LLM."""
     doc_type_info = config.get("document_types", {}).get(doc_type, {})
     expected_fields = doc_type_info.get("fields", [])
-    
-    prompt = f"""You are a tax document data extraction assistant. Extract structured data from the following tax document.
 
-Document Type: {doc_type.upper().replace('_', '-')}
-Expected Fields: {', '.join(expected_fields)}
+    if doc_type == "unknown":
+        known_types = {str(k): v.get("fields", []) for k, v in config.get("document_types", {}).items()}
+        type_hint = (
+            f"\nThe document type could not be determined automatically. "
+            f"First identify what type of document this is. Known types and their fields:\n"
+            + "\n".join(f"  - {t}: {', '.join(f)}" for t, f in known_types.items())
+            + "\nIf it doesn't match a known type, set document_type to a descriptive snake_case name "
+            "and extract all relevant fields you can find."
+        )
+    else:
+        type_hint = f"\nDocument Type: {doc_type.upper().replace('_', '-')}\nExpected Fields: {', '.join(expected_fields)}"
+
+    prompt = f"""You are a tax document data extraction assistant. Extract structured data from the following tax document.
+{type_hint}
 
 IMPORTANT: 
 - Extract ALL numerical values exactly as they appear
@@ -303,15 +318,23 @@ def process_directory(
             
             # Detect document type
             doc_type, confidence = detect_document_type(text, config)
-            console.print(f"  Detected: {doc_type} (confidence: {confidence:.0%})")
-            
+            if doc_type == "unknown":
+                console.print(f"  Detected: unknown (confidence: {confidence:.0%}) — LLM will classify")
+            else:
+                console.print(f"  Detected: {doc_type} (confidence: {confidence:.0%})")
+
             # Extract structured data with LLM
             doc_data = extract_fn(
-                text, 
-                doc_type, 
+                text,
+                doc_type,
                 config,
                 prior_year_data
             )
+            # If LLM classified an unknown doc, use its document_type
+            if doc_type == "unknown" and doc_data.get("document_type") and doc_data["document_type"] != "unknown":
+                llm_type = doc_data["document_type"]
+                console.print(f"  LLM classified as: {llm_type}")
+                doc_type = llm_type
             doc_data["source_file"] = pdf_path.name
             doc_data["detection_confidence"] = confidence
             doc_data["document_role"] = document_role  # Track role per document
@@ -495,12 +518,17 @@ def main(input_path: str, output_path: str, prior_year_path: Optional[str], extr
         # Single file
         text = extract_text_from_pdf(input_path)
         doc_type, confidence = detect_document_type(text, config)
-        console.print(f"Detected document type: {doc_type} (confidence: {confidence:.0%})")
-        
+        if doc_type == "unknown":
+            console.print(f"Detected document type: unknown (confidence: {confidence:.0%}) — LLM will classify")
+        else:
+            console.print(f"Detected document type: {doc_type} (confidence: {confidence:.0%})")
+
         # Select extraction function based on backend
         extract_fn = extract_with_ollama if extraction_backend == "ollama" else extract_with_local_llm
-        
+
         doc_data = extract_fn(text, doc_type, config, prior_year_data)
+        if doc_type == "unknown" and doc_data.get("document_type") and doc_data["document_type"] != "unknown":
+            console.print(f"LLM classified as: {doc_data['document_type']}")
         doc_data["source_file"] = input_path.name
         doc_data["document_role"] = document_role
         

@@ -70,6 +70,10 @@ sensitive_patterns:
     pattern: '\b\d{9}\b'
     replacement: "[ROUTING_REDACTED_{id}]"
 
+# Document type detection settings
+detection:
+  min_confidence: 0.4  # Below this threshold, let the LLM classify the document type
+
 # Document type detection keywords
 document_types:
   w2:
