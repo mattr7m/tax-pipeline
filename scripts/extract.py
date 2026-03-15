@@ -118,11 +118,17 @@ def build_extraction_prompt(
     text: str,
     doc_type: str,
     config: dict,
-    prior_year_context: Optional[dict] = None
+    prior_year_context: Optional[dict] = None,
+    source_file: Optional[str] = None
 ) -> str:
     """Build the extraction prompt for the LLM."""
+    from uuid import uuid4
+
     doc_type_info = config.get("document_types", {}).get(doc_type, {})
     expected_fields = doc_type_info.get("fields", [])
+    # Unique preamble per document to bust llama.cpp KV cache
+    extraction_id = uuid4().hex[:12]
+    file_label = f" ({source_file})" if source_file else ""
 
     if doc_type == "unknown":
         known_types = {str(k): v.get("fields", []) for k, v in config.get("document_types", {}).items()}
@@ -136,7 +142,9 @@ def build_extraction_prompt(
     else:
         type_hint = f"\nDocument Type: {doc_type.upper().replace('_', '-')}\nExpected Fields: {', '.join(expected_fields)}"
 
-    prompt = f"""You are a tax document data extraction assistant. Extract structured data from the following tax document.
+    prompt = f"""[Extraction {extraction_id}{file_label}]
+You are a tax document data extraction assistant. Extract structured data from the following tax document.
+Extract ONLY information found in the document text below — do not carry over or reuse data from any prior extractions.
 {type_hint}
 
 IMPORTANT: 
@@ -169,7 +177,8 @@ def extract_with_ollama(
     text: str,
     doc_type: str,
     config: dict,
-    prior_year_context: Optional[dict] = None
+    prior_year_context: Optional[dict] = None,
+    source_file: Optional[str] = None
 ) -> dict:
     """
     Use Ollama to extract structured data from document text.
@@ -180,11 +189,11 @@ def extract_with_ollama(
         console.print("[red]Error: ollama package not installed.[/red]")
         console.print("Install with: pip install ollama")
         sys.exit(1)
-    
+
     ollama_config = config.get("ollama", {})
     model = ollama_config.get("model", "llama3.2")
-    
-    prompt = build_extraction_prompt(text, doc_type, config, prior_year_context)
+
+    prompt = build_extraction_prompt(text, doc_type, config, prior_year_context, source_file)
 
     try:
         response = ollama.chat(
@@ -207,21 +216,22 @@ def extract_with_local_llm(
     text: str,
     doc_type: str,
     config: dict,
-    prior_year_context: Optional[dict] = None
+    prior_year_context: Optional[dict] = None,
+    source_file: Optional[str] = None
 ) -> dict:
     """
     Use local llama.cpp server to extract structured data from document text.
     """
     llm_config = config.get("local_llm_server", {})
     extraction_config = config.get("extraction", {})
-    
+
     base_url = llm_config.get("base_url", "http://localhost:8080/v1")
     model_name = llm_config.get("model", "local-model")
     timeout = extraction_config.get("timeout", llm_config.get("timeout", 180))
     temperature = extraction_config.get("temperature", 0.1)
     max_tokens = extraction_config.get("max_tokens", 4096)
-    
-    prompt = build_extraction_prompt(text, doc_type, config, prior_year_context)
+
+    prompt = build_extraction_prompt(text, doc_type, config, prior_year_context, source_file)
     
     try:
         response = requests.post(
@@ -350,7 +360,8 @@ def process_directory(
                 text,
                 doc_type,
                 config,
-                prior_year_data
+                prior_year_data,
+                source_file=pdf_path.name
             )
             # If LLM classified an unknown doc, use its document_type
             if doc_type == "unknown" and doc_data.get("document_type") and doc_data["document_type"] != "unknown":
@@ -548,7 +559,7 @@ def main(input_path: str, output_path: str, prior_year_path: Optional[str], extr
         # Select extraction function based on backend
         extract_fn = extract_with_ollama if extraction_backend == "ollama" else extract_with_local_llm
 
-        doc_data = extract_fn(text, doc_type, config, prior_year_data)
+        doc_data = extract_fn(text, doc_type, config, prior_year_data, source_file=input_path.name)
         if doc_type == "unknown" and doc_data.get("document_type") and doc_data["document_type"] != "unknown":
             console.print(f"LLM classified as: {doc_data['document_type']}")
         doc_data["source_file"] = input_path.name
